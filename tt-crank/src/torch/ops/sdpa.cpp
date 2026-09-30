@@ -88,11 +88,12 @@ int64_t tt_fused_sdp_choice(const at::Tensor &query, const at::Tensor &key, cons
     return as<int64_t>(at::SDPBackend::overrideable);
 }
 
-// Emit the SDPA subgraph and run it, returning the attention output. Q/K/V are
-// promoted to a common element type; the mask (when present) is passed through
-// unchanged, matching the compile-path lowering in _compile.py.
-at::Tensor run_sdpa(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
-                    const std::optional<at::Tensor> &attn_mask, bool is_causal, std::optional<double> scale) {
+// Inference forward: emit the single `ttir.sdpa` op and run it, returning the
+// attention output. Q/K/V are promoted to a common element type; the mask (when
+// present) is passed through unchanged, matching the compile-path lowering in
+// _compile.py.
+at::Tensor run_sdpa_inference(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+                              const std::optional<at::Tensor> &attn_mask, bool is_causal, std::optional<double> scale) {
     const std::optional<float> scale_f = scale.has_value() ? std::optional<float>(as<float>(*scale)) : std::nullopt;
     // build_sdpa types the result after Q; the query and value head_dim must match.
     TORCH_CHECK(query.size(3) == value.size(3), "tt-crank sdpa: query head_dim (", query.size(3),
@@ -122,19 +123,6 @@ at::Tensor run_sdpa(const at::Tensor &query, const at::Tensor &key, const at::Te
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, promoted);
 }
 
-// Torch already requires one dtype across q/k/v/out/grad_out, so no promotion here.
-template <typename Build>
-std::vector<tt::runtime::Tensor> run_ttml(Build build, const std::vector<at::Tensor> &tensors) {
-    const std::vector<at::Tensor> aligned = align_on_tt(tensors);
-    std::vector<TensorTypeSpec> specs;
-    for (const at::Tensor &t : aligned) {
-        specs.push_back(spec_for(t));
-    }
-    auto mb = ModuleBuilder::init(specs);
-    auto module_op = std::move(mb).finalize(build(mb));
-    return compile_and_run(std::move(module_op), aligned);
-}
-
 std::vector<at::Tensor> with_mask(std::vector<at::Tensor> tensors, const std::optional<at::Tensor> &mask) {
     if (mask.has_value() && mask->defined()) {
         tensors.push_back(*mask);
@@ -144,6 +132,37 @@ std::vector<at::Tensor> with_mask(std::vector<at::Tensor> tensors, const std::op
 
 mlir::Value mask_arg(ModuleBuilder &mb, std::size_t index) {
     return mb.args().size() > index ? mb.args()[index] : mlir::Value{};
+}
+
+// Training forward: {output, logsumexp} from the sdpa_fw composite. Torch already
+// requires one dtype across q/k/v, so no promotion here; the mask, when present,
+// rides as the trailing input.
+std::vector<tt::runtime::Tensor> run_sdpa_fw(const at::Tensor &query, const at::Tensor &key, const at::Tensor &value,
+                                             const std::optional<at::Tensor> &attn_mask, bool is_causal,
+                                             std::optional<double> scale) {
+    return run_op_eager(
+        [&](ModuleBuilder &mb) {
+            auto a = mb.args();
+            auto [out, lse] = build_sdpa_fw(mb, a[0], a[1], a[2], is_causal, scale, mask_arg(mb, 3));
+            return std::vector{out, lse};
+        },
+        with_mask({query, key, value}, attn_mask));
+}
+
+// Training backward: {dq, dk, dv} from the sdpa_bw composite, given the forward's
+// output and logsumexp. Same single-dtype contract as the forward.
+std::vector<tt::runtime::Tensor> run_sdpa_bw(const at::Tensor &grad_out, const at::Tensor &out, const at::Tensor &query,
+                                             const at::Tensor &key, const at::Tensor &value,
+                                             const at::Tensor &logsumexp, const std::optional<at::Tensor> &attn_mask,
+                                             bool is_causal, std::optional<double> scale) {
+    return run_op_eager(
+        [&](ModuleBuilder &mb) {
+            auto a = mb.args();
+            auto [dq, dk, dv] =
+                build_sdpa_bw(mb, a[0], a[1], a[2], a[3], a[4], a[5], is_causal, scale, mask_arg(mb, 6));
+            return std::vector{dq, dk, dv};
+        },
+        with_mask({grad_out, out, query, key, value, logsumexp}, attn_mask));
 }
 
 // Slots 0 (output) and 1 (logsumexp) carry values; 6/7 are the dropout RNG state autograd saves.
@@ -161,17 +180,11 @@ tt_sdpa_overrideable(const at::Tensor &query, const at::Tensor &key, const at::T
     // Same criterion as tt_fused_sdp_choice, which only lets a grad-mode call through to this op when the ttml
     // composites can run it.
     if (at::GradMode::is_enabled()) {
-        auto outputs = run_ttml(
-            [&](ModuleBuilder &mb) {
-                auto a = mb.args();
-                auto [out, lse] = build_sdpa_fw(mb, a[0], a[1], a[2], is_causal, scale, mask_arg(mb, 3));
-                return std::vector{out, lse};
-            },
-            with_mask({query, key, value}, attn_bias));
+        auto outputs = run_sdpa_fw(query, key, value, attn_bias, is_causal, scale);
         output = wrap_tt_tensor(std::move(outputs[0]), {b, h, s_q, value.size(3)}, query.scalar_type());
         logsumexp = wrap_tt_tensor(std::move(outputs[1]), {b, h, s_q}, at::kFloat);
     } else {
-        output = run_sdpa(query, key, value, attn_bias, is_causal, scale);
+        output = run_sdpa_inference(query, key, value, attn_bias, is_causal, scale);
         logsumexp = at::empty({b, h, s_q}, query.options().dtype(at::kFloat));
     }
     return std::make_tuple(std::move(output), std::move(logsumexp), at::Tensor(), at::Tensor(), c10::SymInt(s_q),
@@ -188,14 +201,7 @@ tt_sdpa_overrideable_backward(const at::Tensor &grad_out, const at::Tensor &quer
     TORCH_CHECK(!grad_input_mask[3], "tt-crank sdpa backward: a gradient w.r.t. attn_bias is not supported");
     TORCH_CHECK(ttml_sdpa_supported(query, key, value, attn_bias) && logsumexp.dim() == 3,
                 "tt-crank sdpa backward: this call is outside what the ttml sdpa_bw kernel supports");
-    auto grads = run_ttml(
-        [&](ModuleBuilder &mb) {
-            auto a = mb.args();
-            auto [dq, dk, dv] =
-                build_sdpa_bw(mb, a[0], a[1], a[2], a[3], a[4], a[5], is_causal, scale, mask_arg(mb, 6));
-            return std::vector{dq, dk, dv};
-        },
-        with_mask({grad_out, out, query, key, value, logsumexp}, attn_bias));
+    auto grads = run_sdpa_bw(grad_out, out, query, key, value, logsumexp, attn_bias, is_causal, scale);
     auto wrap = [&](int i, const at::Tensor &like) {
         return grad_input_mask[i] ? wrap_tt_tensor(std::move(grads[i]), like.sizes(), like.scalar_type())
                                   : at::Tensor();

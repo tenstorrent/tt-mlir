@@ -10,12 +10,16 @@
 #include <tuple>
 #include <type_traits>
 #include <utility>
+#include <vector>
 
 #include <ATen/core/ScalarType.h>
 #include <ATen/core/Tensor.h>
 #include <ATen/native/TypeProperties.h>
+#include <tt/runtime/types.h>
 
 #include "engine/ttir_module_builder.hpp"
+#include "torch/backend.hpp"
+#include "torch/tensor.hpp"
 
 namespace tt::crank::torch_backend {
 
@@ -57,6 +61,26 @@ template <typename... Tensors> auto promote_inputs(ModuleBuilder &mb, const Tens
     return [&]<std::size_t... Is>(std::index_sequence<Is...>) {
         return std::tuple{promoted, mb.insert_typecast(args[Is], promoted_mlir)...};
     }(std::make_index_sequence<sizeof...(Tensors)>{});
+}
+
+// Eager execution of a single op: emit a TTIR module over `tensors` and run it
+// right away, returning the raw runtime outputs. `build(mb)` receives the
+// ModuleBuilder with one arg per tensor (same order) and returns the values to
+// export as outputs. CPU operands are uploaded first (`align_on_tt`); no dtype
+// promotion happens here - do it inside `build` (see `promote_inputs`) when the
+// op needs it. This is the eager path only: the torch.compile path lowers whole
+// FX graphs from Python and never goes through here.
+template <typename Build>
+std::vector<::tt::runtime::Tensor> run_op_eager(Build build, const std::vector<at::Tensor> &tensors) {
+    const std::vector<at::Tensor> aligned = align_on_tt(tensors);
+    std::vector<TensorTypeSpec> specs;
+    specs.reserve(aligned.size());
+    for (const at::Tensor &t : aligned) {
+        specs.push_back(spec_for(t));
+    }
+    auto mb = ModuleBuilder::init(specs);
+    auto module_op = std::move(mb).finalize(build(mb));
+    return compile_and_run(std::move(module_op), aligned);
 }
 
 using ::tt::crank::broadcast_shape;
