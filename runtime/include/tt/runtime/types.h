@@ -428,12 +428,19 @@ struct Tensor : public detail::RuntimeCheckedObjectImpl {
         event(eventHandle.value_or(nullptr), runtime),
         globalId(nextTensorGlobalId()) {}
 
-  void setGlobalId(std::uint64_t id) { globalId = id; }
   std::uint64_t getGlobalId() const { return globalId; }
+
+  // Binds the canonical (e.g. controller-assigned) global id that correlates
+  // this tensor across the controller/worker IPC boundary. May be called at
+  // most once: the id is frozen afterward and any attempt to rebind it to a
+  // different value is a fatal error. This keeps globalId a stable correlation
+  // key that cannot be silently reconfigured at runtime.
+  void bindGlobalId(std::uint64_t id);
 
 private:
   std::uint64_t nextTensorGlobalId();
   std::uint64_t globalId;
+  bool globalIdBound_ = false;
 };
 
 struct GlobalSemaphore : public detail::RuntimeCheckedObjectImpl {
