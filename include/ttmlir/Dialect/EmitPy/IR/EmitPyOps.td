@@ -492,6 +492,94 @@ def EmitPy_WhileYieldOp : EmitPy_Op<"while_yield",
   let assemblyFormat = "($results^ `:` type($results))? attr-dict";
 }
 
+def EmitPy_CaseOp : EmitPy_Op<"case",
+    [SingleBlockImplicitTerminator<"CaseYieldOp">]> {
+  let summary = "N-way branch statement";
+  let description = [{
+    The `emitpy.case` operation represents a Python `if`/`elif`/`else` chain
+    that selects one of `branches` by an index.
+
+    The values the branches produce stay in SSA form: `emitpy.case_yield` hands
+    them out and the op's results are what the selected branch produced. Python
+    has no SSA, so the emitter gives each result one named local that both the
+    yields and the results refer to.
+
+    `index` is a format string whose `{}` placeholders are filled by
+    `index_args`, evaluated once into a local before the chain. The last branch
+    is emitted as the bare `else`, so an index matching no branch selects it.
+
+    Example:
+
+    ```mlir
+    %r = emitpy.case "{}" args %i : (!emitpy.opaque<"int">) branches {
+      %0 = emitpy.call_opaque "ttnn.add"(%a, %a) : (...) -> ...
+      emitpy.case_yield %0 : !emitpy.opaque<"ttnn.Tensor">
+    }, {
+      emitpy.case_yield %a : !emitpy.opaque<"ttnn.Tensor">
+    } -> (!emitpy.opaque<"ttnn.Tensor">)
+    ```
+    ```python
+    # Code emitted:
+    case_index = i
+    if case_index == 0:
+        ttnn_add = ttnn.add(a, a)
+        branch_0 = ttnn_add
+    else:
+        branch_0 = a
+    ```
+  }];
+
+  let arguments = (ins
+    StrAttr:$index,
+    Variadic<AnyType>:$index_args
+  );
+
+  let results = (outs Variadic<EmitPy_Type>:$results);
+
+  let regions = (region VariadicRegion<SizedRegion<1>>:$branches);
+
+  let extraClassDeclaration = [{
+    FailureOr<SmallVector<::mlir::tt::emitpy::ReplacementItem>> parseFormatString();
+
+    /// The terminator carrying a branch's produced values. Defined out of line
+    /// because ODS emits op classes in alphabetical order, so CaseYieldOp is
+    /// still incomplete here.
+    CaseYieldOp getBranchYield(unsigned index);
+  }];
+
+  let hasVerifier = 1;
+  // A variadic region is parsed by reading trailing regions while a comma
+  // follows, so nothing comma-led may come after `$branches`.
+  let assemblyFormat = [{
+    $index (`args` $index_args^ `:` `(` type($index_args) `)`)?
+    `branches` $branches (`->` `(` type($results)^ `)`)? attr-dict
+  }];
+}
+
+def EmitPy_CaseYieldOp : EmitPy_Op<"case_yield",
+    [Pure, ReturnLike, Terminator, HasParent<"CaseOp">]> {
+  let summary = "Branch value terminator";
+  let description = [{
+    The `emitpy.case_yield` operation terminates an `emitpy.case` branch with
+    the values that branch produces. Its operand types match the parent's
+    results.
+
+    Example:
+
+    ```mlir
+    emitpy.case_yield %0 : !emitpy.opaque<"ttnn.Tensor">
+    ```
+  }];
+
+  let arguments = (ins Variadic<EmitPy_Type>:$results);
+
+  // Carries nothing by default, so SingleBlockImplicitTerminator can insert
+  // one into a freshly built region.
+  let builders = [OpBuilder<(ins), [{ /* nothing to do */ }]>];
+
+  let assemblyFormat = "($results^ `:` type($results))? attr-dict";
+}
+
 def EmitPy_VerbatimOp : EmitPy_Op<"verbatim"> {
   let summary = "Verbatim operation";
   let description = [{

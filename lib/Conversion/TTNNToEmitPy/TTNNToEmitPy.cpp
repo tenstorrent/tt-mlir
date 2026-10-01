@@ -5814,6 +5814,39 @@ namespace {
 constexpr llvm::StringLiteral kWhileYieldRoleAttr = "ttnn.while_yield_role";
 constexpr llvm::StringLiteral kWhileYieldCond = "cond";
 constexpr llvm::StringLiteral kWhileYieldBody = "body";
+constexpr llvm::StringLiteral kCaseYieldRoleAttr = "ttnn.case_yield";
+
+// Returns `ttnn.Tensor(tensor)`, a new handle on `tensor`'s buffer; no data is
+// copied. A plain Python assignment would share one object, so a non-forced
+// ttnn.deallocate of either name would free the buffer under the other.
+Value createTensorHandle(ConversionPatternRewriter &rewriter,
+                         mlir::Location loc, Value tensor) {
+  return rewriter
+      .create<emitpy::CallOpaqueOp>(loc, tensor.getType(),
+                                    ttnn_to_emitpy::kTensorHandleFunctionName,
+                                    ValueRange{tensor})
+      .getResult(0);
+}
+
+// Gives a new handle to each yielded value that stays alive under another
+// name: one from the enclosing scope, such as a capture, and any repeat of an
+// earlier one.
+llvm::SmallVector<Value> bindYieldedValues(Operation *controlFlowOp,
+                                           ValueRange yielded,
+                                           ConversionPatternRewriter &rewriter,
+                                           mlir::Location loc) {
+  llvm::SmallVector<Value> bound;
+  bound.reserve(yielded.size());
+  for (auto [index, value] : llvm::enumerate(yielded)) {
+    bool fromEnclosingScope =
+        !controlFlowOp->isAncestor(value.getParentRegion()->getParentOp());
+    bool repeated = llvm::is_contained(yielded.take_front(index), value);
+    bound.push_back(fromEnclosingScope || repeated
+                        ? createTensorHandle(rewriter, loc, value)
+                        : value);
+  }
+  return bound;
+}
 
 class WhileOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::WhileOp> {
@@ -5832,12 +5865,21 @@ public:
       return failure();
     }
 
+    // A carried variable starts out as a new handle on its init, not as the
+    // init's own object, which keeps its name after the loop; see
+    // createTensorHandle. A loop that runs zero times, or carries a value
+    // through unchanged, would otherwise leave result and init one object.
+    llvm::SmallVector<Value> inits =
+        llvm::map_to_vector(adaptor.getInits(), [&](Value init) {
+          return createTensorHandle(rewriter, loc, init);
+        });
+
     const bool counted = srcOp.getTripCount().has_value();
     auto whileOp = rewriter.create<emitpy::WhileOp>(
         loc, carriedTypes,
         /*condition=*/counted ? StringAttr() : rewriter.getStringAttr("True"),
         /*cond_args=*/ValueRange(),
-        /*inits=*/adaptor.getInits(),
+        /*inits=*/inits,
         /*trip_count=*/
         counted ? rewriter.getI64IntegerAttr(*srcOp.getTripCount())
                 : IntegerAttr());
@@ -5876,7 +5918,56 @@ public:
   }
 };
 
-class WhileYieldOpConversionPattern
+// Lowers `ttnn.case` to an `emitpy.case`, whose emitter renders the branches as
+// a Python if/elif/else chain. The last branch becomes the bare `else`, which
+// is what reproduces the op's rule that an out-of-range index selects it.
+class CaseOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::CaseOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::CaseOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::CaseOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    mlir::Location loc = srcOp.getLoc();
+
+    llvm::SmallVector<Type> resultTypes;
+    if (failed(getTypeConverter()->convertTypes(srcOp.getResultTypes(),
+                                                resultTypes))) {
+      return failure();
+    }
+
+    // Read signed, so that a negative index matches no branch and falls through
+    // to the else arm.
+    auto caseOp = rewriter.create<emitpy::CaseOp>(
+        loc, resultTypes,
+        /*index=*/rewriter.getStringAttr("int({}.to_torch().item())"),
+        /*index_args=*/ValueRange{adaptor.getIndex()},
+        /*branchesCount=*/srcOp.getBranches().size());
+
+    // A branch block takes no arguments: the ttnn region's arguments are the
+    // captures, which are defined in the enclosing scope and stay visible in
+    // Python, so they are substituted straight in.
+    llvm::SmallVector<Value> branchArgs(adaptor.getCaptures());
+
+    for (auto [index, destination] : llvm::enumerate(caseOp.getBranches())) {
+      Block &source = srcOp.getBranchBlock(static_cast<unsigned>(index));
+      rewriter.modifyOpInPlace(source.getTerminator(), [&]() {
+        source.getTerminator()->setAttr(kCaseYieldRoleAttr,
+                                        rewriter.getUnitAttr());
+      });
+      Block *branchBlock = rewriter.createBlock(&destination);
+      rewriter.inlineBlockBefore(&source, branchBlock, branchBlock->end(),
+                                 branchArgs);
+    }
+
+    rewriter.replaceOp(srcOp, caseOp.getResults());
+    return success();
+  }
+};
+
+class ControlFlowYieldOpConversionPattern
     : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::YieldOp> {
 public:
   using TTNNToEmitPyBaseOpConversionPattern<
@@ -5885,9 +5976,18 @@ public:
   LogicalResult
   matchAndRewrite(mlir::tt::ttnn::YieldOp srcOp, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    if (srcOp->hasAttr(kCaseYieldRoleAttr)) {
+      rewriter.replaceOpWithNewOp<emitpy::CaseYieldOp>(
+          srcOp, bindYieldedValues(srcOp->getParentOp(), adaptor.getOperands(),
+                                   rewriter, srcOp.getLoc()));
+      return success();
+    }
+
     auto role = srcOp->getAttrOfType<StringAttr>(kWhileYieldRoleAttr);
     if (!role) {
-      return rewriter.notifyMatchFailure(srcOp, "yield is not part of a loop");
+      return rewriter.notifyMatchFailure(srcOp,
+                                         "yield is not part of a control flow "
+                                         "op this pattern lowered");
     }
 
     // The condition region's yield is the loop's exit test. Python has no
@@ -5898,8 +5998,9 @@ public:
       return success();
     }
 
-    rewriter.replaceOpWithNewOp<emitpy::WhileYieldOp>(srcOp,
-                                                      adaptor.getOperands());
+    rewriter.replaceOpWithNewOp<emitpy::WhileYieldOp>(
+        srcOp, bindYieldedValues(srcOp->getParentOp(), adaptor.getOperands(),
+                                 rewriter, srcOp.getLoc()));
     return success();
   }
 };
@@ -6172,7 +6273,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   // Control flow ops
   //
   patterns.add<WhileOpConversionPattern>(typeConverter, ctx);
-  patterns.add<WhileYieldOpConversionPattern>(typeConverter, ctx);
+  patterns.add<CaseOpConversionPattern>(typeConverter, ctx);
+  patterns.add<ControlFlowYieldOpConversionPattern>(typeConverter, ctx);
 
   // Quantization ops.
   //
