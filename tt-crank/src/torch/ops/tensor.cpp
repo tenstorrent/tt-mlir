@@ -118,10 +118,20 @@ at::Tensor empty_strided(at::IntArrayRef size, at::IntArrayRef stride, std::opti
 at::Tensor copy_from(const at::Tensor &self, const at::Tensor &dst, bool /*non_blocking*/) {
     TORCH_CHECK(self.sizes() == dst.sizes(), "tt-crank _copy_from: shape mismatch");
 
-    // `tensor.to(other_dtype)` reaches us as a `_copy_from` with mismatched
-    // dtypes. Do the dtype conversion on CPU (slow but correct) then recurse;
-    // the second call hits a same-dtype device-pair branch below.
+    // `dst.copy_(src)` with mismatched dtypes. Do the dtype conversion on CPU
+    // (slow but correct) then recurse; the second call hits a same-dtype
+    // device-pair branch below.
     if (self.scalar_type() != dst.scalar_type()) {
+        if (is_tt(self) && is_tt(dst)) {
+            // Per shard: `self.cpu()` would read only shard 0 and the upload would
+            // replicate it, collapsing a sharded multi-device tensor onto chip 0's data.
+            auto shards = host_shards_of(self);
+            for (auto &shard : shards) {
+                shard = shard.to(dst.scalar_type());
+            }
+            storage_of(dst).replace(storage_of(tt_from_host_shards(shards)).tensor());
+            return dst;
+        }
         return copy_from(self.cpu().to(dst.scalar_type()), dst, /*non_blocking=*/false);
     }
 
