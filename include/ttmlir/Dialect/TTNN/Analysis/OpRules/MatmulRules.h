@@ -24,17 +24,49 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 struct MatmulRuleBook : OpRuleBook {
-  /// Output hints: partial configs without L1-interleaved.
+  /// Output hints: for DS-eligible matmuls, the DS hint is included alongside
+  /// the normal partial configs. adjustScore ranks the DS hint through
+  /// LayoutScore::rulePreference. For non-eligible matmuls: normal behavior.
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 
-  /// Reject all sharded RHS inputs (operand 1). LHS and bias are unrestricted.
+  /// Operand 1 (weight): interleaved layouts as for any matmul, plus the DRAM
+  /// width-sharded layout getExtraInputReshardCandidates injects for DS.
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
   /// Apply MatmulProgramConfig + fused activation dedup.
+  /// For DS candidates: set program/compute config only.
   void applyOpSpecificAttrs(Operation *op,
                             const BeamCandidate &candidate) const override;
+
+  /// Reject the DS hint for input combinations that aren't the correct DS
+  /// layouts (L1 width-sharded in0, DRAM width-sharded in1). The tt-metal op
+  /// model crashes (TT_FATAL) rather than returning a failure when given a DS
+  /// program config with incompatible input layouts.
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+
+  /// Rank DS candidates through rulePreference: DS above the rest, an in0
+  /// already on the canonical grid above one that needs a reshard.
+  LayoutScore adjustScore(Operation *op, LayoutScore base,
+                          const OpConfig &config,
+                          llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                          bool requiresReshard) const override;
+
+  /// Inject DS-specific input layouts into the candidate pool:
+  ///   operand 0 → L1 width-sharded 1×kNumIn0Cores
+  ///   operand 1 → DRAM width-sharded 1×numBanks, padded; numBanks comes
+  ///               from the device's DRAM grid
+  std::vector<TTNNLayoutAttr>
+  getExtraInputReshardCandidates(Operation *op,
+                                 unsigned operandIdx) const override;
+
+private:
+  /// Build the DS output hint (L1 width-sharded 1×kNumIn0Cores + DS program
+  /// config). Returns nullopt if not eligible or params don't fit L1.
+  std::optional<OpConfig> buildDRAMShardingHint(Operation *op) const;
 };
 
 } // namespace mlir::tt::ttnn
