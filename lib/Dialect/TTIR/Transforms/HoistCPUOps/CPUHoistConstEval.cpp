@@ -85,6 +85,28 @@ static bool isTransparentOp(mlir::Operation *op) {
   return mlir::isa<ReshapeOp, TypecastOp>(op);
 }
 
+// Check if an op only rearranges or retypes data without performing any
+// arithmetic: tensor-manipulation ops (transpose, reshape, permute, rearrange)
+// and typecast. Such ops carry no arithmetic, so running them in f32 on the CPU
+// yields no precision benefit over on-device execution.
+static bool isPureDataMovementOp(mlir::Operation *op) {
+  return op->hasTrait<TensorManipulation::Trait>() || mlir::isa<TypecastOp>(op);
+}
+
+// Check if a segment should be kept on device as pure data movement: every op
+// only rearranges/retypes data (no arithmetic) and at least one op changes
+// shape/layout (transpose, reshape, permute, rearrange). A segment that is
+// *only* typecast(s) does not qualify: a bare typecast changes element type but
+// not shape/layout, so it neither blocks downstream shape-based folding (e.g. a
+// transpose feeding a matmul's transpose_b) nor is it the movement round-trip
+// this targets - leave it to the normal hoisting path.
+static bool isPureDataMovementSegment(const OpsVectorType &segment) {
+  return llvm::all_of(segment, isPureDataMovementOp) &&
+         llvm::any_of(segment, [](mlir::Operation *op) {
+           return op->hasTrait<TensorManipulation::Trait>();
+         });
+}
+
 // Check if an op is a barrier for CPU hoisting - CCL and MeshShard ops must
 // remain on device and split the subgraph into segments.
 static bool isBarrierOp(mlir::Operation *op) {
@@ -181,6 +203,16 @@ analyzeConstEval(func::FuncOp funcOp) {
   // Build a CPUHoistedOpsDescriptor descriptor for each segment.
   llvm::SmallVector<CPUHoistedOpsDescriptor> descriptors;
   for (const auto &segment : segments) {
+    // Skip CPU-hoisting of pure data-movement segments (transpose, permute,
+    // reshape; optionally interleaved with typecast). Such a segment carries no
+    // arithmetic, so f32 CPU execution yields no precision benefit; hoisting it
+    // only adds a bf16->f32->bf16 typecast round-trip plus a host round-trip
+    // and prevents on-device handling of the movement op (e.g. folding a weight
+    // transpose into a matmul's transpose_b). Keep these on device.
+    if (isPureDataMovementSegment(segment)) {
+      continue;
+    }
+
     // Verify all ops can be lowered to Linalg. If any op fails, skip
     // CPU-hoisting this segment.
     auto *unlowerableOp = llvm::find_if(segment, [&](mlir::Operation *op) {
