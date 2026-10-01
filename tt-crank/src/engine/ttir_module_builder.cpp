@@ -1901,6 +1901,73 @@ std::tuple<mlir::Value, mlir::Value, mlir::Value> build_sdpa_bw(ModuleBuilder &m
             sdpa_unpad_head_dim(mb, results[1], key), results[2]};
 }
 
+namespace {
+
+llvm::SmallVector<mlir::Value, 2> rmsnorm_fw_decomposition(ModuleBuilder &mb, mlir::ValueRange args, double eps,
+                                                           mlir::Type rms_type) {
+    mlir::Value input = args[0], gamma = args[1];
+    const mlir::Type element_type = element_type_of(input);
+    const mlir::Type fp32 = mb.attrs().getF32Type();
+    const int64_t last = as<int64_t>(shape_of(input).size()) - 1;
+    mlir::Value x = mb.insert_typecast(input, fp32);
+    mlir::Value mean_sq = build_add(mb, build_mean(mb, build_mul(mb, x, x), {last}, true), build_scalar(mb, fp32, eps));
+    mlir::Value output = build_mul(mb, build_mul(mb, x, build_rsqrt(mb, mean_sq)), mb.insert_typecast(gamma, fp32));
+    return {mb.insert_typecast(output, element_type), mb.insert_typecast(build_sqrt(mb, mean_sq), rms_type)};
+}
+
+llvm::SmallVector<mlir::Value, 2> rmsnorm_bw_decomposition(ModuleBuilder &mb, mlir::ValueRange args) {
+    const mlir::Type element_type = element_type_of(args[0]);
+    const mlir::Type fp32 = mb.attrs().getF32Type();
+    mlir::Value x = mb.insert_typecast(args[0], fp32);
+    mlir::Value gamma = mb.insert_typecast(args[1], fp32);
+    mlir::Value rstd = build_reciprocal(mb, mb.insert_typecast(args[2], fp32));
+    mlir::Value grad_output = mb.insert_typecast(args[3], fp32);
+    auto input_shape = shape_of(x);
+    const int64_t last = as<int64_t>(input_shape.size()) - 1;
+    mlir::Value x_hat = build_mul(mb, x, rstd);
+    mlir::Value grad_x_hat = build_mul(mb, grad_output, gamma);
+    mlir::Value sum_val = build_sum(mb, build_mul(mb, x_hat, grad_x_hat), {last}, true);
+    mlir::Value x_hat_mean = scale_tensor(mb, x_hat, 1.0 / as<double>(input_shape.back()));
+    mlir::Value grad_input = build_mul(mb, build_sub(mb, grad_x_hat, build_mul(mb, x_hat_mean, sum_val)), rstd);
+    mlir::Value grad_gamma = build_sum_to(mb, build_mul(mb, grad_output, x_hat), shape_of(gamma));
+    return {mb.insert_typecast(grad_input, element_type), mb.insert_typecast(grad_gamma, element_type)};
+}
+
+} // namespace
+
+std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Value input, mlir::Value weight,
+                                                     double eps, bool stats_in_f32) {
+    auto input_shape = shape_of(input);
+    const mlir::Type element_type = element_type_of(input);
+    const mlir::Type rms_type = stats_in_f32 ? mb.attrs().getF32Type() : element_type;
+    mlir::Value gamma = weight ? weight : build_ones(mb, {input_shape.back()}, element_type);
+    llvm::SmallVector<int64_t> stat_shape(input_shape);
+    stat_shape.back() = 1;
+    llvm::SmallVector<mlir::Type, 2> result_types{input.getType(), mlir::RankedTensorType::get(stat_shape, rms_type)};
+    auto &attrs = mb.attrs();
+    llvm::SmallVector<mlir::NamedAttribute, 2> attributes{
+        attrs.getNamedAttr("return_intermediates", attrs.getBoolAttr(true)),
+        attrs.getNamedAttr("epsilon", attrs.getF32FloatAttr(as<float>(eps)))};
+    auto results = mb.create_composite("rmsnorm_fw", {input, gamma}, result_types, attributes,
+                                       [eps, rms_type](ModuleBuilder &body, mlir::ValueRange args) {
+                                           return rmsnorm_fw_decomposition(body, args, eps, rms_type);
+                                       });
+    return {results[0], build_reciprocal(mb, mb.insert_typecast(results[1], attrs.getF32Type()))};
+}
+
+std::pair<mlir::Value, mlir::Value> build_rmsnorm_bw(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value input,
+                                                     mlir::Value rstd, mlir::Value weight, bool stats_in_f32) {
+    const mlir::Type element_type = element_type_of(input);
+    mlir::Value gamma = weight ? weight : build_ones(mb, {shape_of(input).back()}, element_type);
+    mlir::Value rms =
+        mb.insert_typecast(build_reciprocal(mb, rstd), stats_in_f32 ? mb.attrs().getF32Type() : element_type);
+    llvm::SmallVector<mlir::Type, 2> result_types{input.getType(), gamma.getType()};
+    auto results = mb.create_composite(
+        "rmsnorm_bw", {input, gamma, rms, grad_output}, result_types, {},
+        [](ModuleBuilder &body, mlir::ValueRange args) { return rmsnorm_bw_decomposition(body, args); });
+    return {results[0], weight ? results[1] : mlir::Value{}};
+}
+
 mlir::Value build_addcdiv(ModuleBuilder &mb, mlir::Value input, mlir::Value tensor1, mlir::Value tensor2,
                           double value) {
     auto div = build_div(mb, tensor1, tensor2);
