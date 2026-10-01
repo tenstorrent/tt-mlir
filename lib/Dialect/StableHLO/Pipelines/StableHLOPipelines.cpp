@@ -34,6 +34,10 @@ void createStableHLOPipeline(OpPassManager &pm,
   // Apply StableHLO fusing pass.
   pm.addPass(mlir::tt::stablehlo::createStableHLOFusingPass());
 
+  // Lower statically bounded scan-style while ops to straight-line StableHLO so
+  // sharding propagation and TTIR conversion can reason about the body.
+  pm.addPass(mlir::tt::stablehlo::createStableHLOUnrollStaticWhilePass());
+
   // Partially convert sdy ops to stablehlo.
   pm.addPass(createPartiallyConvertSdyToStableHLOPass());
 
@@ -128,6 +132,9 @@ void createStableHLOPipeline(OpPassManager &pm,
 
   // Split tensor dimensions according to tensor sharding annotations.
   pm.addPass(createUpdateGlobalToLocalShapesPass());
+
+  // Replace static scan-output updates with device-lowerable slice/concat ops.
+  pm.addPass(createRewriteStaticDynamicUpdateSlicePass());
 
   // Re-outline composite ops from flattened groups.
   pm.addPass(createReoutlineCompositePass());
