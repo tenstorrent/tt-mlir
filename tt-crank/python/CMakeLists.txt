@@ -33,6 +33,9 @@ _tt_crank_add_bundle_target(bundle-ttnn
 if(TT_CRANK_BUILD_PYTHON_EXT)
     add_custom_target(tt_crank_python)
     add_dependencies(tt_crank_python _tt_crank_torch_native bundle-tracy bundle-ttnn)
+    if(TT_CRANK_BUILD_ONNX)
+        add_dependencies(tt_crank_python tt_crank_ort)
+    endif()
 
     # editable only: create a symlink to our native lib in the directory where
     # the python sources are located, so that python can find it.
@@ -61,6 +64,16 @@ install(TARGETS tt_crank tt_crank_common TTMLIRCompiler TTMLIRRuntime
         DESTINATION tt_crank/include
         EXCLUDE_FROM_ALL
 )
+
+# wheel: ONNX Runtime plugin EP.
+if(TT_CRANK_BUILD_ONNX)
+    install(TARGETS tt_crank_ort
+        LIBRARY
+            DESTINATION tt_crank/lib
+            COMPONENT wheel_payload
+            EXCLUDE_FROM_ALL
+    )
+endif()
 
 # wheel: tt-metal's libs and tracy CLI binaries, the same set tt-mlir installs
 # (third_party/CMakeLists.txt).
