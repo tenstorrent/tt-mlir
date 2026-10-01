@@ -667,7 +667,7 @@ MemoryLayoutPropagation::processOp(Operation *op) {
                  "interleaved.",
                  op->getName(), op->getLoc());
 
-    TTNNLayoutAttr dramLayout = getDRAMInterleavedFallback(op);
+    TTNNLayoutAttr dramLayout = getDRAMInterleavedFallback(op, 0);
     bool isSink = optimizer_utils::isSinkOp(op);
     if (dramLayout || isSink) {
       BeamCandidate fallback;
@@ -675,7 +675,15 @@ MemoryLayoutPropagation::processOp(Operation *op) {
           dramLayout ? OpConfig(dramLayout) : OpConfig(TTNNLayoutAttr());
       fallback.score = LayoutScore();
       if (dramLayout) {
-        fallback.outputLayouts.assign(op->getNumResults(), dramLayout);
+        // Each result gets a layout derived from its own type: a multi-output
+        // op whose results differ in shape (e.g. a normalization returning
+        // per-row statistics alongside the full-size output) would otherwise
+        // have result 0's encoding stamped onto every result, leaving the
+        // result type and its encoding describing different shapes.
+        fallback.outputLayouts.reserve(op->getNumResults());
+        for (unsigned ri = 0; ri < op->getNumResults(); ++ri) {
+          fallback.outputLayouts.push_back(getDRAMInterleavedFallback(op, ri));
+        }
       }
       // When all tryHint calls fail (e.g. op model unavailable in NO_DISPATCH
       // mode) we fall through to this synthetic candidate. It carries no
@@ -1352,12 +1360,13 @@ size_t MemoryLayoutPropagation::resolveForForkPoint(
 }
 
 TTNNLayoutAttr
-MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op) {
-  if (op->getNumResults() == 0) {
+MemoryLayoutPropagation::getDRAMInterleavedFallback(Operation *op,
+                                                    unsigned resultIdx) {
+  if (resultIdx >= op->getNumResults()) {
     return nullptr;
   }
   auto tensorType =
-      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+      mlir::dyn_cast<RankedTensorType>(op->getResult(resultIdx).getType());
   if (!tensorType) {
     return nullptr;
   }
