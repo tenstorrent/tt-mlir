@@ -39,6 +39,15 @@ jobs:
     with:
       docker-tag: ${{ needs.build-image.outputs.docker-tag }}
       docker_image: ${{ needs.build-image.outputs.docker-image }}
+  crank-wheel-build:
+    needs: [ prepare-run, build-image ]
+    if: needs.prepare-run.outputs.skip_build != 'true'
+    uses: ./.github/workflows/call-build-crank-wheel.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
+      runner: ${{ needs.prepare-run.outputs.runner }}
+      sh_builder: ${{ fromJson(needs.prepare-run.outputs.sh_builder) }}
   test:
     needs: [ prepare-run, build-image, release-build ]
     if: needs.prepare-run.outputs.skip_build != 'true'
@@ -56,6 +65,7 @@ jobs:
       - build-image
       - release-build
       - wheels-build
+      - crank-wheel-build
       - test
     runs-on: Ubuntu-latest
     outputs:

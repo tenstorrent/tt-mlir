@@ -1,0 +1,122 @@
+name: Build tt-crank Wheel (call)
+
+on:
+  workflow_call:
+    inputs:
+      docker_image:
+        description: 'Docker image for the build'
+        required: true
+        type: string
+      runner:
+        description: Runner machine
+        required: false
+        type: string
+        default: 'tt-ubuntu-2204-large-stable'
+      sh_builder:
+        description: Run on shared runner
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  checks: write
+  packages: write
+
+jobs:
+
+  build-crank-wheel:
+    timeout-minutes: 180
+    name: Build tt-crank Wheel
+
+    runs-on: ${{ inputs.sh_builder && inputs.runner || fromJson(format('["{0}", "in-service"]',inputs.runner)) }}
+
+    container:
+      image: ${{ inputs.sh_builder && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
+
+    steps:
+
+    - name: Maximize space
+      if: inputs.runner == 'ubuntu-latest'
+      uses: tenstorrent/tt-github-actions/.github/actions/maximize_space@main
+
+    - uses: actions/checkout@v5
+      with:
+          fetch-depth: 0
+
+    - name: Set reusable strings
+      id: strings
+      shell: bash
+      run: |
+        echo "work-dir=$(pwd)" >> "$GITHUB_OUTPUT"
+        echo "wheel-output-dir=$(pwd)/dist" >> "$GITHUB_OUTPUT"
+
+    - name: Git safe dir
+      run: git config --global --add safe.directory ${{ steps.strings.outputs.work-dir }}
+
+    - name: ccache
+      uses: hendrikmuhs/ccache-action@v1.2.22
+      with:
+        create-symlink: true
+        key: crank-wheel-${{ env.SDK_VERSION }}
+      env:
+        CCACHE_NOHASHDIR: true
+        CCACHE_BASEDIR: ${{ steps.strings.outputs.work-dir }}
+
+    # stamp time, date and sha 0.1.0 -> 0.1.0.devYYYYMMDD+g<sha>.
+    - name: Stamp nightly version
+      shell: bash
+      run: |
+        DATE=$(date -u +%Y%m%d)
+        SHA=$(git rev-parse --short=7 HEAD)
+        sed -i -E "s/^version = \"([0-9.]+)\"/version = \"\1.dev${DATE}+g${SHA}\"/" tt-crank/pyproject.toml
+        grep '^version = ' tt-crank/pyproject.toml
+
+    - name: Build wheel
+      shell: bash
+      run: |
+        source env/activate
+        # Build causes the OOM error if parallel level is not limited
+        export CMAKE_BUILD_PARALLEL_LEVEL=32
+        # The wheel build is not isolated (see tt-crank/pyproject.toml): torch
+        # and the build backends must be in the venv.
+        pip install -r tt-crank/requirements.txt -r tt-crank/requirements-dev.txt
+        pip wheel tt-crank/ --no-build-isolation --no-deps -v \
+          -w ${{ steps.strings.outputs.wheel-output-dir }}
+
+    - name: Upload wheel artifact
+      uses: actions/upload-artifact@v7
+      with:
+        name: ttcrank-wheel
+        path: ${{ steps.strings.outputs.wheel-output-dir }}/tt_crank-*.whl
+        if-no-files-found: error
+        compression-level: 0
+
+  test-crank-wheel-install:
+    needs: build-crank-wheel
+    timeout-minutes: 30
+    name: Test tt-crank Wheel Installation
+    runs-on: ubuntu-latest
+
+    container:
+      image: ${{ inputs.docker_image }}
+
+    steps:
+
+    - name: Download wheel
+      uses: actions/download-artifact@v8
+      with:
+        name: ttcrank-wheel
+        path: ./dist
+
+    - name: Test wheel installation
+      shell: bash
+      run: |
+        python3.12 -m venv /tmp/crank-venv
+        source /tmp/crank-venv/bin/activate
+        WHEEL_FILE=$(ls ./dist/tt_crank-*.whl)
+        echo "Installing wheel: $WHEEL_FILE"
+        pip install "$WHEEL_FILE"
+
+        python -c "import tt_crank.torch; print('Imported tt_crank.torch:', tt_crank.torch)"
+        python -c "import ttnn; print('Imported ttnn:', ttnn)"
+        python -c "import tracy; print('Imported tracy:', tracy)"
