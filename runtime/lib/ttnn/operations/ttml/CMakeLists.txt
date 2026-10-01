@@ -10,9 +10,10 @@ endif()
 
 add_library(TTRuntimeTTMLOps STATIC
   adamw.cpp
+  layernorm_bw.cpp
+  layernorm_fw.cpp
   rmsnorm_bw.cpp
   rmsnorm_fw.cpp
-  layernorm_fw.cpp
   sdpa_fw.cpp
   sdpa_bw.cpp
   softmax_backward.cpp

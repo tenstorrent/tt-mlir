@@ -34,6 +34,7 @@ extract_output_tensor(const std::tuple<Tensor, Tensor, Tensor> &result) {
 
 #include "metal/ops/cross_entropy_bw/cross_entropy_bw.hpp"
 #include "metal/ops/cross_entropy_fw/cross_entropy_fw.hpp"
+#include "metal/ops/layernorm_bw/layernorm_bw.hpp"
 #include "metal/ops/layernorm_fw/layernorm_fw.hpp"
 #include "metal/ops/rmsnorm_bw/rmsnorm_bw.hpp"
 #include "metal/ops/rmsnorm_fw/rmsnorm_fw.hpp"

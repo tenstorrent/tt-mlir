@@ -131,6 +131,7 @@
 #include "operations/ttml/adamw.h"
 #include "operations/ttml/cross_entropy_bw.h"
 #include "operations/ttml/cross_entropy_fw.h"
+#include "operations/ttml/layernorm_bw.h"
 #include "operations/ttml/layernorm_fw.h"
 #include "operations/ttml/rmsnorm_bw.h"
 #include "operations/ttml/rmsnorm_fw.h"
@@ -677,6 +678,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     return operations::ttml::run(op->type_as_LayerNormForwardOp(),
+                                 getContext());
+  }
+  case ::tt::target::ttnn::OpType::LayerNormBackwardOp: {
+    return operations::ttml::run(op->type_as_LayerNormBackwardOp(),
                                  getContext());
   }
   case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
