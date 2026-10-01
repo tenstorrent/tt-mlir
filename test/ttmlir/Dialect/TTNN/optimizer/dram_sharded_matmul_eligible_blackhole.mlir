@@ -1,9 +1,13 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 mock-system-desc-arch=blackhole enable-dram-sharded-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t
+//
+// tt-metal#57022: the stateful op-model query trips on the Metal 2.0 DS
+// factory's borrowed-memory DFBs. Remove once the fix is uplifted.
+// XFAIL: *
 
-// Control for dram_sharded_matmul_reject_ccl_consumer: the same shape with an
-// ordinary consumer takes the DS path.
+// Control for dram_sharded_matmul_reject_blackhole.mlir: the same shape as the
+// collective case with an ordinary consumer takes the DS path.
 
 module attributes {} {
   // CHECK-LABEL: func.func @ds_matmul_no_ccl
