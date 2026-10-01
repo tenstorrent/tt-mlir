@@ -165,7 +165,8 @@ def TTNN_UnaryOpType_Cbrt  : I32EnumAttrCase<"Cbrt", 80, "cbrt">;
 def TTNN_UnaryOpType_Mish  : I32EnumAttrCase<"Mish", 81, "mish">;
 def TTNN_UnaryOpType_Log1p  : I32EnumAttrCase<"Log1p", 82, "log1p">;
 def TTNN_UnaryOpType_Asinh  : I32EnumAttrCase<"Asinh", 83, "asinh">;
-def TTNN_UnaryOpType_Unknown  : I32EnumAttrCase<"Unknown", 84, "unknown">;
+def TTNN_UnaryOpType_Hardswish  : I32EnumAttrCase<"Hardswish", 84, "hardswish">;
+def TTNN_UnaryOpType_Unknown  : I32EnumAttrCase<"Unknown", 85, "unknown">;
 
 def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
                           [
@@ -253,6 +254,7 @@ def TTNN_UnaryOpType : I32EnumAttr<"UnaryOpType", "TTNN Unary Operation Type",
                             TTNN_UnaryOpType_Mish,
                             TTNN_UnaryOpType_Log1p,
                             TTNN_UnaryOpType_Asinh,
+                            TTNN_UnaryOpType_Hardswish,
                             TTNN_UnaryOpType_Unknown,
                           ]> {
   let genSpecializedAttr = 0;
