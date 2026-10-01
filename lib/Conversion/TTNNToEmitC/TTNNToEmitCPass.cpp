@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -20,7 +21,13 @@
 #include "mlir/IR/MLIRContext.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Target/Cpp/CppEmitter.h"
 #include "mlir/Transforms/DialectConversion.h"
+
+#include "llvm/ADT/SetVector.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <string>
 
 using namespace mlir;
 using namespace mlir::tt;
@@ -67,6 +74,12 @@ struct ConvertTTNNToEmitCPass
   void runOnOperation() override {
     mlir::ModuleOp module = getOperation();
     mlir::ConversionTarget target(getContext());
+
+    // Collect helpers before lowering erases their symbolic references.
+    llvm::SetVector<StringAttr> cachedCallees;
+    module.walk([&](ttcore::LoadCachedOp op) {
+      cachedCallees.insert(op.getCalleeAttr().getAttr());
+    });
 
     // EmitC is legal, TTNN is illegal
     //
@@ -134,6 +147,31 @@ struct ConvertTTNNToEmitCPass
         signalPassFailure();
         return;
       }
+    }
+
+    // emitc.declare_func cannot reference func.func.
+    OpBuilder builder(module.getContext());
+    auto include = *module.getOps<emitc::IncludeOp>().begin();
+    builder.setInsertionPointAfter(include);
+    for (StringAttr callee : cachedCallees) {
+      auto func = module.lookupSymbol<func::FuncOp>(callee.getValue());
+      if (!func) {
+        module.emitError("cached helper not found after EmitC conversion: ")
+            << callee.getValue();
+        signalPassFailure();
+        return;
+      }
+      OpBuilder declarationBuilder(module.getContext());
+      OwningOpRef<emitc::FuncOp> declaration =
+          declarationBuilder.create<emitc::FuncOp>(
+              func.getLoc(), func.getSymName(), func.getFunctionType());
+      std::string cpp;
+      llvm::raw_string_ostream stream(cpp);
+      if (failed(emitc::translateToCpp(declaration.get(), stream))) {
+        signalPassFailure();
+        return;
+      }
+      builder.create<emitc::VerbatimOp>(func.getLoc(), StringRef(cpp).trim());
     }
   }
 };
