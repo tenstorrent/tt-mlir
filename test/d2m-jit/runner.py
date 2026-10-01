@@ -292,7 +292,7 @@ def assert_pcc(golden, actual, threshold: float = 0.99):
 # ----------------------------------------------------------------------
 
 
-def run_rewrite(spec: PatternTest) -> str:
+def run_rewrite(spec: PatternTest, *, preserve_debug_info: bool = False) -> str:
     """Apply just this pattern file's rewrites to the spec's TTIR module.
 
     Uses ``apply_patterns_text``, which snapshots/clears/restores the global
@@ -305,7 +305,11 @@ def run_rewrite(spec: PatternTest) -> str:
         raise ValueError(
             f"PatternTest {spec.name!r} has no source_file (discovery sets it)"
         )
-    return apply_patterns_text(spec.ttir, [spec.source_file])
+    return apply_patterns_text(
+        spec.ttir,
+        [spec.source_file],
+        preserve_debug_info=preserve_debug_info,
+    )
 
 
 def _filecheck_bin() -> str:
@@ -483,8 +487,7 @@ def compile_spec_to_fbb(spec: PatternTest):
     from _ttmlir_runtime import binary as _rt_binary
     from d2m_jit._src.builder import _get_system_desc_path, _pipeline_passes
 
-    # run_rewrite already applies *only* this file's pattern(s), in isolation.
-    rewritten = run_rewrite(spec)
+    rewritten = run_rewrite(spec, preserve_debug_info=True)
     ctx = ir.Context()
     ctx.load_all_available_dialects()
     module = ir.Module.parse(rewritten, ctx)
