@@ -121,7 +121,9 @@ RotaryEmbeddingRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
       TensorMemoryLayout::HeightSharded);
 }
 
-bool RotaryEmbeddingRuleBook::shouldExploreReshards() const { return false; }
+bool RotaryEmbeddingRuleBook::shouldExploreReshards(unsigned operandIdx) const {
+  return operandIdx == 0;
+}
 
 OutputHints RotaryEmbeddingRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
