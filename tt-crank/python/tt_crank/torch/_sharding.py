@@ -241,7 +241,19 @@ def _linear_backward_sharding(self, grad_output, weight, output_mask):
 
 
 def _matmul_backward_sharding(grad, self, other, output_mask):
-    """`matmul_backward` on tt: batch-parallel families only; a sharded contraction dim falls back to replicated."""
+    """`matmul_backward` on tt: one family per batch dim of `grad`, the matrix dims never shard.
+
+    Batch dims align from the right (matmul broadcasting), so a batch dim of `grad` sits at a
+    different index on `self` and `other`, or is missing / size 1 on one of them. An operand
+    without the dim stays Replicate and its gradient comes back Partial: the kernel sums it over
+    the broadcast dim per shard, DTensor sums the shards.
+
+        grad [B, H, S, E]  self [B, H, S, D]  other [H, D, E]     grad [B, S, E]  self [B, S, D]  other [D, E]
+        Shard(1)           Shard(1)           Shard(0)            Shard(0)        Shard(0)        Replicate
+          -> grad_self Shard(1), grad_other Shard(0)                -> grad_self Shard(0), grad_other Partial
+
+    A 1-D operand has no batch dims and shifts grad's rank; those shapes get the replicate family only.
+    """
     wanted = (output_mask[0], output_mask[1])
 
     def outputs(*placements):
@@ -255,9 +267,31 @@ def _matmul_backward_sharding(grad, self, other, output_mask):
             [Replicate(), Replicate(), Replicate(), None],
         )
     ]
-    for d in range(max(min(self.ndim, other.ndim) - 2, 0)):
+    if self.ndim < 2 or other.ndim < 2:
+        return shardings
+
+    def operand_dim(t, d):
+        """`t`'s dim for grad's batch dim `d`, or None when `t` is broadcast there."""
+        td = d - (grad.ndim - t.ndim)
+        return td if td >= 0 and t.shape[td] != 1 else None
+
+    for d in range(grad.ndim - 2):
+        sd, od = operand_dim(self, d), operand_dim(other, d)
+        if sd is None and od is None:
+            continue
         shardings.append(
-            (outputs(Shard(d), Shard(d)), [Shard(d), Shard(d), Shard(d), None])
+            (
+                outputs(
+                    Partial() if sd is None else Shard(sd),
+                    Partial() if od is None else Shard(od),
+                ),
+                [
+                    Shard(d),
+                    Replicate() if sd is None else Shard(sd),
+                    Replicate() if od is None else Shard(od),
+                    None,
+                ],
+            )
         )
     return shardings
 
