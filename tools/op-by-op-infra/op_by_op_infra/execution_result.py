@@ -12,6 +12,22 @@ from typing import Optional
 from .pydantic_models import OpTest, TensorDesc
 from .utils import ModuleWrapper
 
+# Longest error text kept on a reported op. Compiler and splitter errors can embed
+# a whole module -- one such message ran to 57k characters in a real nightly run --
+# and every op carrying that verbatim is what makes a job log unreadable.
+MAX_ERROR_MESSAGE_CHARS = 2000
+
+
+def _truncate_error_message(message: str) -> str:
+    """Bounds an error string, noting how much was cut so nothing looks complete."""
+    if len(message) <= MAX_ERROR_MESSAGE_CHARS:
+        return message
+    dropped = len(message) - MAX_ERROR_MESSAGE_CHARS
+    return (
+        message[:MAX_ERROR_MESSAGE_CHARS]
+        + f"... [truncated {dropped} of {len(message)} characters]"
+    )
+
 
 class ExecutionPhase(Enum):
     """Progress marks in execution pipeline."""
@@ -116,7 +132,10 @@ def convert_to_pydantic_model(result: ExecutionResult) -> OpTest:
     if result.device_run_passed:
         error_msg = None
     elif result.error_message:
-        error_msg = result.error_message
+        # Bounded: compiler and splitter errors can embed a whole module, and one
+        # such message ran to 57k characters in a real nightly run. Every op
+        # carrying that verbatim is what makes the job log unreadable.
+        error_msg = _truncate_error_message(result.error_message)
     else:
         error_msg = f"Last step successfully finished: {result.execution_phase.name}."
 
