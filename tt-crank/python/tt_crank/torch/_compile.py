@@ -1524,10 +1524,13 @@ def _aot_graph_kind() -> str | None:
     return "_".join(tag).rpartition("_")[2] or None
 
 
-def _input_mutation_pairs(gm: torch.fx.GraphModule, fw_meta) -> list[tuple[int, int]]:
+def _input_mutation_pairs() -> list[tuple[int, int]]:
     """`(graph input index, graph output index)` for each input aot_autograd writes
     back after the graph runs.
     """
+    if _aot_graph_kind() == "backward":
+        return []
+    fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
     if fw_meta is None:
         return []
     num_tokens = len(fw_meta.tokens)
@@ -1544,7 +1547,6 @@ def _lower_and_compile(
     gm: torch.fx.GraphModule,
     example_inputs: list[torch.Tensor],
     roles: list["_native.ArgumentType"],
-    fw_meta=None,
     *,
     options: _native.CompileOptions,
 ) -> Callable:
@@ -1553,9 +1555,7 @@ def _lower_and_compile(
     Walks the graph once via _TTIRInterpreter, finalizes the accumulated TTIR
     module, compiles it to a flatbuffer, and returns a runner closure that binds
     inputs and runs the compiled program on each call. `roles` tags each graph
-    arg for const-eval (see tt_backend / _forward_parameter_roles). `fw_meta` is
-    aot_autograd's forward metadata, used to write mutated inputs back in place;
-    None for the backward graph, which has no input mutations.
+    arg for const-eval (see tt_backend / _forward_parameter_roles).
     """
     if _post_aot_fx_hook is not None:
         _post_aot_fx_hook(gm)
@@ -1609,9 +1609,7 @@ def _lower_and_compile(
         )
 
     mutation_pairs = (
-        _input_mutation_pairs(gm, fw_meta)
-        if options.enable_zero_copy_input_mutations
-        else []
+        _input_mutation_pairs() if options.enable_zero_copy_input_mutations else []
     )
 
     def runner(*inputs: torch.Tensor) -> list:
@@ -1714,7 +1712,7 @@ def tt_backend(
     ) -> Callable:
         fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
         roles = _fw_args_roles(len(fw_inputs), fw_meta)
-        return lower_and_compile(fw_gm, fw_inputs, roles, fw_meta)
+        return lower_and_compile(fw_gm, fw_inputs, roles)
 
     def bw_compiler(
         bw_gm: torch.fx.GraphModule, bw_inputs: list[torch.Tensor]
