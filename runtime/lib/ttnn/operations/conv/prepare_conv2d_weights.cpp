@@ -16,6 +16,20 @@ void run(const ::tt::target::ttnn::PrepareConv2dWeightsOp *op,
   const ::ttnn::Tensor &weightTensor =
       tensorPool.getTTNNTensorAndValidate(op->weight_tensor());
 
+  // Quasar has no public prepare_conv_* entry point: quasar::conv2d prepares its
+  // own weights and bias internally (prepare_conv_weights_biases_and_move_to_device /
+  // prepare_conv_bias_internal), and explicitly accepts unprepared tensors -- it
+  // validates device weights and reprocesses them if they are not already in its
+  // layout. Running the MAINLINE prepare here instead tilizes through a factory that
+  // hardcodes ComputeGen1Config, which on Gen2 dies as
+  //   "KernelSpec 'compute' targets Gen2 (Quasar) but its ComputeHardwareConfig
+  //    holds a ComputeGen1Config".
+  // Passing the tensor straight through is both the fix and the intended path.
+  if (utils::isQuasar()) {
+    tensorPool.insertTTNNTensorAndValidate(op->out(), weightTensor);
+    return;
+  }
+
   std::optional<::ttnn::MemoryConfig> inputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->input_memory_config());

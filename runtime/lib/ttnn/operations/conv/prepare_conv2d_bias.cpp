@@ -16,6 +16,14 @@ void run(const ::tt::target::ttnn::PrepareConv2dBiasOp *op,
   const ::ttnn::Tensor &weightTensor =
       tensorPool.getTTNNTensorAndValidate(op->bias_tensor());
 
+  // See prepare_conv2d_weights.cpp: quasar::conv2d prepares its own bias internally
+  // (prepare_conv_bias_internal) and accepts an unprepared one. The mainline prepare
+  // tilizes through a factory hardcoding ComputeGen1Config, which Gen2 rejects.
+  if (utils::isQuasar()) {
+    tensorPool.insertTTNNTensorAndValidate(op->out(), weightTensor);
+    return;
+  }
+
   std::optional<::ttnn::MemoryConfig> inputMemoryConfig =
       ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
           op->input_memory_config());
