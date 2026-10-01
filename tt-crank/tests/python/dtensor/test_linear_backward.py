@@ -33,12 +33,20 @@ def _run(mode: str, fn, *args):
     return torch.compile(fn, backend="tt", fullgraph=True)(*args)
 
 
+def _assert_close(got: torch.Tensor, ref: torch.Tensor) -> None:
+    """bf16 device result vs fp32 CPU autograd. A `Partial` gradient is rounded to bf16 on each chip
+    and summed across chips in bf16, so the error is a few bf16 steps at the gradient's own scale
+    (a step at 16..32 is 0.125): the absolute tolerance follows that scale, not a fixed 0.1."""
+    atol = 0.05 * ref.std().item()
+    torch.testing.assert_close(got, ref, atol=atol, rtol=0.1)
+
+
 def _check_grad(name: str, got, ref: torch.Tensor, placement) -> None:
     assert got is not None, f"no gradient for {name}"
     assert got.placements == (
         placement,
     ), f"{name}.grad placed {got.placements}, expected ({placement},)"
-    torch.testing.assert_close(got.full_tensor().cpu().float(), ref, atol=0.1, rtol=0.1)
+    _assert_close(got.full_tensor().cpu().float(), ref)
 
 
 # (x, weight, bias, grad_output) placements going in ->
@@ -154,9 +162,7 @@ def test_linear_backward_2d_mesh(tt_pg, mesh_2d_shape, mode: str) -> None:
         assert (
             got.grad.placements == expected[name]
         ), f"{name}.grad placed {got.grad.placements}"
-        torch.testing.assert_close(
-            got.grad.full_tensor().cpu().float(), ref.grad, atol=0.1, rtol=0.1
-        )
+        _assert_close(got.grad.full_tensor().cpu().float(), ref.grad)
 
 
 @pytest.mark.parametrize("mode", ["eager", "compile"])
