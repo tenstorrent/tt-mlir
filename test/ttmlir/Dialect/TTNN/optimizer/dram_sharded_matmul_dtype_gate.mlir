@@ -3,6 +3,10 @@
 // RUN: FileCheck %s --input-file=%t --check-prefix=BFP8
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 enable-dram-sharded-matmul=true" -o %t2 %s
 // RUN: FileCheck %s --input-file=%t2 --check-prefix=BF16
+//
+// tt-metal#57022: the stateful op-model query trips on the Metal 2.0 DS
+// factory's borrowed-memory DFBs. Remove once the fix is uplifted.
+// XFAIL: *
 
 // The DS path is offered for bfp4/bfp8 weights only. Identical IR, two weight
 // dtypes.

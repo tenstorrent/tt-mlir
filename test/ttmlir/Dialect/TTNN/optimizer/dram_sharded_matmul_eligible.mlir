@@ -1,6 +1,10 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 enable-dram-sharded-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t --implicit-check-not='"ttnn.silu"' --implicit-check-not='activation = "silu"'
+//
+// tt-metal#57022: the stateful op-model query trips on the Metal 2.0 DS
+// factory's borrowed-memory DFBs. Remove once the fix is uplifted.
+// XFAIL: *
 
 // Shapes the DS gate accepts; each gets the DS program config with per_core_m = 1.
 // The implicit-check-nots catch a silu that survived outside the multiply.

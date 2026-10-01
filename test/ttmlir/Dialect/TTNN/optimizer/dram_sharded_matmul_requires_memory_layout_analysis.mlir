@@ -3,6 +3,10 @@
 // RUN: FileCheck %s --input-file=%t.o1 --check-prefix=O1
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 enable-dram-sharded-matmul=true" -o %t.o2 %s
 // RUN: FileCheck %s --input-file=%t.o2 --check-prefix=O2
+//
+// tt-metal#57022: the stateful op-model query trips on the Metal 2.0 DS
+// factory's borrowed-memory DFBs. Remove once the fix is uplifted.
+// XFAIL: *
 
 module attributes {} {
   // O1-LABEL: func.func @ds_matmul_requires_mla
