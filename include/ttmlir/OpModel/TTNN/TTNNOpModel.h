@@ -2432,6 +2432,26 @@ struct OpModel<SDPABackwardOp> {
 };
 
 //===----------------------------------------------------------------------===//
+// SoftmaxBackwardOp
+//===----------------------------------------------------------------------===//
+
+template <>
+struct OpModel<SoftmaxBackwardOp> {
+  static llvm::Expected<OpConstraints>
+  getOpConstraints(llvm::ArrayRef<int64_t> softmaxOutputShape,
+                   TTNNLayoutAttr softmaxOutputLayout,
+                   llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+                   int32_t dimension, TTNNLayoutAttr outputLayout,
+                   const MockAllocatorState *initialState = nullptr);
+
+  static llvm::Expected<size_t>
+  getOpRuntime(llvm::ArrayRef<int64_t> softmaxOutputShape,
+               TTNNLayoutAttr softmaxOutputLayout,
+               llvm::ArrayRef<int64_t> gradShape, TTNNLayoutAttr gradLayout,
+               int32_t dimension, TTNNLayoutAttr outputLayout);
+};
+
+//===----------------------------------------------------------------------===//
 // RMSNormForwardOp
 //===----------------------------------------------------------------------===//
 

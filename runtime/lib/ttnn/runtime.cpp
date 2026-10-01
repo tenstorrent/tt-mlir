@@ -1640,6 +1640,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::SoftmaxBackwardOp: {
+    tensorRefs = {opContext.type_as_SoftmaxBackwardOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
     auto *op = opContext.type_as_RMSNormBackwardOp();
     tensorRefs = {op->grad_input(), op->grad_gamma()};
@@ -2067,6 +2071,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::RMSNormForwardOp: {
     auto *op = opContext.type_as_RMSNormForwardOp();
     tensorRefs = {op->input(), op->gamma()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SoftmaxBackwardOp: {
+    auto *op = opContext.type_as_SoftmaxBackwardOp();
+    tensorRefs = {op->softmax_output(), op->grad()};
     break;
   }
   case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
