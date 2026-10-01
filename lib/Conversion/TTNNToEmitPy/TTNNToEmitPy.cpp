@@ -5790,6 +5790,28 @@ public:
   }
 };
 
+// SiluBackward conversion pattern.
+//
+// EmitPy lowering for ttnn.silu_bw is intentionally unsupported. The emitted
+// Python would need to call the low-level ttml::metal::silu_bw primitive,
+// which tt-train does not expose through its Python bindings.
+class SiluBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SiluBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SiluBackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SiluBackwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp, "EmitPy lowering for ttnn.silu_bw is not supported: ttml does "
+               "not expose the metal::silu_bw primitive through its Python "
+               "bindings.");
+  }
+};
+
 // SwigluElemwiseBackward conversion pattern.
 //
 // EmitPy lowering for ttnn.swiglu_elemwise_bw is intentionally unsupported.
@@ -6251,6 +6273,9 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<SoftmaxBackwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormBackwardOpConversionPattern>(typeConverter, ctx);
+
+  // SiluBackward: deliberately declines conversion, same reason.
+  patterns.add<SiluBackwardOpConversionPattern>(typeConverter, ctx);
 
   // SwigluElemwiseBackward: deliberately declines conversion, same reason.
   patterns.add<SwigluElemwiseBackwardOpConversionPattern>(typeConverter, ctx);
