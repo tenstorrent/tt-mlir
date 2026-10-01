@@ -52,7 +52,7 @@ float getTensorL1UsageCap(Operation *op, float defaultValue) {
 }
 
 bool isDRAMShardedMatmulEnabled(Operation *op) {
-  ModuleOp moduleOp = op->getParentOfType<ModuleOp>();
+  ModuleOp moduleOp = getPolicyModule(op);
 
   if (moduleOp) {
     if (auto attr = moduleOp->getAttrOfType<BoolAttr>(
