@@ -1,0 +1,77 @@
+# EAGLE-3 draft for Llama-3.1-8B-Instruct on one tt chip.
+#
+# Same recipe and hyperparameters as AutoModel's
+# examples/speculative/eagle3/llama_eagle3_perfectblend.yaml, minus the
+# multi-GPU settings: one chip replaces 8 GPUs, so gradient accumulation makes
+# up for the data-parallel ranks to keep its effective batch of 32.
+
+recipe: TrainEagle3Recipe
+
+recipe_args:
+  target_model_name_or_path: meta-llama/Llama-3.1-8B-Instruct
+  train_data_path: frankleeeee/PerfectBlend-Regenerated-Llama-3.1-8B-Instruct
+  val_data_path: null
+  train_split: "train[:200000]"
+  val_split: null
+
+  output_dir: ./outputs/eagle3_llama3_1_8b_tt
+
+  # AutoModel's config uses 2048; at 2048 the bf16 target plus the draft's
+  # activations over the TTT unroll exceed one chip's 32 GB DRAM.
+  seq_length: 1024
+  # Packs samples into seq_length-token rows; 0 pads each sample instead.
+  packed_sequence_size: 1024
+
+  micro_batch_size: 1
+  # AutoModel: 8 GPUs * micro_batch 1 * grad_accum 4 = effective batch 32.
+  grad_accumulation_steps: 32
+  # Dataloader workers would fork the process after the tt device is open.
+  num_workers: 0
+  num_epochs: 1
+
+  ttt_steps: 4
+  draft_vocab_size: 32000
+  # Written on the first run, reused afterwards to skip the vocab scan.
+  selected_token_ids_path: ./outputs/eagle3_llama3_1_8b_tt/draft_token_map.pt
+  freeze_embeddings: true
+
+  trust_remote_code: false
+  shuffle_seed: 42
+  # AutoModel's config uses 20; a step takes ~4 min on one chip.
+  log_every_steps: 1
+  max_grad_norm: 1.0
+  # Model, optimizer, LR scheduler and RNG state, every N optimizer steps.
+  ckpt_every_steps: 100
+
+optimizer:
+  lr: 2.0e-4
+  betas: [0.9, 0.95]
+  weight_decay: 0.0
+  warmup_ratio: 0.05
+  min_lr_ratio: 0.1
+
+# AutoModel's CompileConfig, applied by train_eagle3.py to the frozen target and
+# to the whole trainer module (TTT-unrolled draft + loss, forward and backward).
+# Not AutoModel's `compile:` key, which compiles only the draft's forward.
+# `enabled: false` runs every op eagerly instead.
+tt_compile:
+  enabled: true
+  backend: tt
+  # Every shape change compiles a new static graph; tt lowers no symbolic shapes.
+  dynamic: false
+  options:
+    # Most precise compute-kernel config (math fidelity defaults to HiFi4). With
+    # ttnn's default approximate exp, softmax rows sum to 0.96-1.005, and the
+    # draft's gradients lose their direction as its attention sharpens.
+    fp32_dest_acc_en: true
+    math_approx_mode: false
+
+checkpoint:
+  enabled: true
+  checkpoint_dir: ./outputs/eagle3_llama3_1_8b_tt/checkpoints
+  model_save_format: safetensors
+  save_consolidated: true
+
+wandb:
+  project: eagle3-tt-crank
+  name: ""

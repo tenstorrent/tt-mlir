@@ -47,6 +47,10 @@ struct TT_CRANK_API CompileOptions {
     // fp32 destination accumulation override.
     std::optional<bool> fp32_dest_acc_en;
 
+    // Approximate SFPU math (e.g. softmax's exp) override. Unset leaves it to
+    // ttnn, whose kernel-config default is approximate.
+    std::optional<bool> math_approx_mode;
+
     // Fuse conv2d + multiply in the TTNN fusing pass.
     std::optional<bool> experimental_enable_fusing_conv2d_with_multiply_pattern;
 

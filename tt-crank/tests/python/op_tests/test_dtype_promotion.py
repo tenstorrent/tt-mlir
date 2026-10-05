@@ -102,9 +102,12 @@ def test_binary_op_dtype(
 
 
 # Tensor + Python scalar: result dtype follows the tensor (PyTorch's
-# wrapped-scalar rule), not the scalar's natural Python type.
+# wrapped-scalar rule), not the scalar's natural Python type. A 0-dim tensor
+# ties with the scalar on dimensionality, so only the wrapped-number flag
+# keeps the tensor's dtype there.
 @pytest.mark.parametrize("mode", _MODES, ids=lambda m: m.value)
 @pytest.mark.parametrize("op_name", list(BINARY_OPS))
+@pytest.mark.parametrize("shape", [(32,), ()], ids=["1d", "0d"])
 @pytest.mark.parametrize(
     "a_dtype,scalar",
     [
@@ -118,11 +121,14 @@ def test_binary_op_dtype(
 def test_binary_op_scalar(
     mode: ExecutionMode,
     op_name: str,
+    shape: tuple[int, ...],
     a_dtype: torch.dtype,
     scalar,
 ) -> None:
+    if mode is ExecutionMode.COMPILE and shape == ():
+        pytest.xfail("compiled 0-dim results come back with shape [1]")
     op, _ = BINARY_OPS[op_name]
-    a = _make_tensor(a_dtype)
+    a = _make_tensor(a_dtype, shape)
     assert_close_cpu_vs_tt(
         lambda x: op(x, scalar), a, mode=mode, **_tolerance(a_dtype, a_dtype)
     )

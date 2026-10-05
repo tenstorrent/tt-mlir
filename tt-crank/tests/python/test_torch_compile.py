@@ -1617,6 +1617,52 @@ def test_compile_index_single() -> None:
     _assert_compile_matches_eager(_Index(), x, idx)
 
 
+def test_compile_index_single_nd() -> None:
+    """A single N-D index tensor puts its own shape in place of the indexed dim,
+    e.g. a vocab lookup table indexed by `[batch, seq]` token ids."""
+
+    class _Index(nn.Module):
+        def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+            return x[:, idx]
+
+    x = torch.randn((8, 16), dtype=torch.bfloat16)
+    idx = torch.tensor([[0, 3, 3], [-1, 7, 1]], dtype=torch.int64)
+    _assert_compile_matches_eager(_Index(), x, idx)
+
+    class _Lookup(nn.Module):
+        def forward(self, table: torch.Tensor, ids: torch.Tensor) -> torch.Tensor:
+            return table[ids]
+
+    table = torch.randn((64,), dtype=torch.bfloat16)
+    ids = torch.randint(0, 64, (2, 32), dtype=torch.int64)
+    _assert_compile_matches_eager(_Lookup(), table, ids)
+
+
+@pytest.mark.parametrize("dtype", [torch.bfloat16, torch.int64])
+def test_compile_max_full(dtype: torch.dtype) -> None:
+    """`x.max()` with no dim reduces the whole tensor to a 0-dim value."""
+
+    class _Max(nn.Module):
+        def forward(self, x: torch.Tensor) -> torch.Tensor:
+            return x.max().reshape(1)
+
+    x = torch.arange(64).reshape(2, 32).to(dtype) - 7
+    _assert_compile_matches_eager(_Max(), x)
+
+
+@pytest.mark.parametrize("dim", [0, -1])
+def test_compile_index_select(dim: int) -> None:
+    """aten.index_select shares the single-index gather."""
+
+    class _IndexSelect(nn.Module):
+        def forward(self, x: torch.Tensor, idx: torch.Tensor) -> torch.Tensor:
+            return x.index_select(dim, idx)
+
+    x = torch.randn((2, 8, 16), dtype=torch.bfloat16)
+    idx = torch.tensor([1, 0, 1, 1], dtype=torch.int64)
+    _assert_compile_matches_eager(_IndexSelect(), x, idx)
+
+
 def test_compile_index_leading_dims() -> None:
     """Advanced indexing with index tensors covering all leading dims
     (aten.index.Tensor → flattened linear-index gather). ttir.gather isn't
@@ -1958,6 +2004,7 @@ def test_compile_options() -> None:
     assert defaults.experimental_kv_cache_dtype is None
     assert defaults.math_fidelity is None
     assert defaults.fp32_dest_acc_en is None
+    assert defaults.math_approx_mode is None
     assert defaults.experimental_enable_permute_matmul_fusion is True
     assert defaults.enable_const_eval is None
 
@@ -1969,6 +2016,7 @@ def test_compile_options() -> None:
             CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE: BfpDtype.BfpBf4,
             CompileOption.MATH_FIDELITY: MathFidelity.HiFi3,
             CompileOption.FP32_DEST_ACC_EN: False,
+            CompileOption.MATH_APPROX_MODE: False,
             CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN: True,
             CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION: False,
             CompileOption.ENABLE_TRACE: True,
@@ -1986,6 +2034,7 @@ def test_compile_options() -> None:
     assert c.experimental_kv_cache_dtype == BfpDtype.BfpBf4
     assert c.math_fidelity == MathFidelity.HiFi3
     assert c.fp32_dest_acc_en is False
+    assert c.math_approx_mode is False
     assert c.experimental_enable_fusing_conv2d_with_multiply_pattern is True
     assert c.experimental_enable_permute_matmul_fusion is False
     assert c.enable_trace is True

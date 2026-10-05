@@ -233,7 +233,17 @@ bool is_tt(const at::Tensor &t) {
 
 at::Tensor to_tt(const at::Tensor &t, at::Device device) {
     TORCH_CHECK(is_tt(device), "tt-crank to_tt: target device must be tt, got ", device);
-    return t.device() == device ? t : t.to(device);
+    if (t.device() == device) {
+        return t;
+    }
+    auto moved = t.to(device);
+    // A Python scalar operand (`x + 1.0`) arrives as a wrapped-number CPU tensor.
+    // Keep the flag so dtype promotion still ranks it below every tensor operand,
+    // including 0-dim ones.
+    if (t.unsafeGetTensorImpl()->is_wrapped_number()) {
+        moved.unsafeGetTensorImpl()->set_wrapped_number(true);
+    }
+    return moved;
 }
 
 // ===== Distributed primitives =====

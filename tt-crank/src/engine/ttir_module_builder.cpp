@@ -754,10 +754,38 @@ mlir::Value build_softmax(ModuleBuilder &mb, mlir::Value input, int64_t dim) {
     return mb.create<mlir::tt::ttir::SoftmaxOp>(input_type, input, as<int32_t>(norm_dim), true).getResult();
 }
 
+// ttnn's multicore last-dim argmax gives every core a (rows x cores)-sized scratch
+// buffer for the partial results, unchecked against L1: [2048, 128256] bf16 on
+// Blackhole needs 1.6 MB of its 1.5 MB. Rows beyond this many are argmaxed in
+// slices and concatenated. Slices rather than a reshape to [rows / chunk, chunk]:
+// tt-mlir commutes reshapes through the reduction and folds that back together.
+constexpr int64_t kArgmaxMaxRowsPerChunk = 512;
+
 mlir::Value build_argmax(ModuleBuilder &mb, mlir::Value input, std::optional<int64_t> dim, bool keepdim) {
     auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
     auto shape = input_type.getShape();
     int64_t rank = as<int64_t>(shape.size());
+
+    if (dim.has_value() && rank >= 2 && (dim.value() + rank) % rank == rank - 1) {
+        int64_t rows = shape[as<std::size_t>(rank - 2)];
+        if (rows > kArgmaxMaxRowsPerChunk) {
+            llvm::SmallVector<int64_t> begins(as<std::size_t>(rank), 0);
+            llvm::SmallVector<int64_t> ends(shape.begin(), shape.end());
+            llvm::SmallVector<int64_t> steps(as<std::size_t>(rank), 1);
+            llvm::SmallVector<mlir::Value> chunks;
+            for (int64_t begin = 0; begin < rows; begin += kArgmaxMaxRowsPerChunk) {
+                begins[as<std::size_t>(rank - 2)] = begin;
+                ends[as<std::size_t>(rank - 2)] = std::min(rows, begin + kArgmaxMaxRowsPerChunk);
+                chunks.push_back(build_argmax(mb, build_slice(mb, input, begins, ends, steps), -1, true));
+            }
+            auto indices = build_cat(mb, chunks, rank - 2);
+            if (keepdim) {
+                return indices;
+            }
+            return build_reshape(mb, indices, llvm::SmallVector<int64_t>(shape.begin(), shape.end() - 1));
+        }
+    }
+
     llvm::SmallVector<int64_t> out_shape;
     mlir::ArrayAttr dim_arg_attr;
     if (dim.has_value()) {

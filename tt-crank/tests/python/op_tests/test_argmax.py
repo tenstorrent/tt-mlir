@@ -7,7 +7,7 @@
 import pytest
 import torch
 
-from tt_crank.torch.testing import assert_close_cpu_vs_tt
+from tt_crank.torch.testing import ExecutionMode, assert_close_cpu_vs_tt
 
 
 @pytest.mark.parametrize("shape", [(32, 64), (32, 64, 128)])
@@ -33,6 +33,26 @@ def test_argmax_last_token() -> None:
     # Mirrors the decode sampling: logits[:, -1:, :].argmax(dim=-1)
     logits = torch.randn((1, 128, 256), dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(lambda x: x[:, -1:, :].argmax(dim=-1), logits)
+
+
+@pytest.mark.parametrize("mode", list(ExecutionMode), ids=lambda m: m.value)
+@pytest.mark.parametrize(
+    "shape,keepdim",
+    [((1, 2048, 128256), False), ((600, 1000), True)],
+    ids=["llama3_vocab", "rows_not_multiple_of_chunk"],
+)
+def test_argmax_many_rows(mode: ExecutionMode, shape: tuple, keepdim: bool) -> None:
+    # Full-vocab argmax over a 2048-token sequence: ttnn's multicore argmax
+    # overflows L1 on it unless the rows are chunked.
+    logits = torch.randn(shape, dtype=torch.bfloat16)
+    # A single clear maximum per row, so bf16 ties can't flip the result.
+    rows = logits.reshape(-1, shape[-1])
+    rows[
+        torch.arange(rows.shape[0]), torch.randint(0, shape[-1], (rows.shape[0],))
+    ] = 16.0
+    assert_close_cpu_vs_tt(
+        lambda x: x.argmax(dim=-1, keepdim=keepdim), logits, mode=mode
+    )
 
 
 @pytest.mark.parametrize("dim", [0, 1, -1])

@@ -24,6 +24,7 @@ Pipeline::
 from __future__ import annotations
 
 import functools
+import math
 import operator
 from collections.abc import Callable
 from enum import StrEnum
@@ -166,7 +167,7 @@ def _(mb, x, dim, keepdim=False, *, dtype=None):
     return mb.sum(x, list(dim), keepdim)
 
 
-@_lowering(_aten.amax.default)
+@_lowering(_aten.amax.default, _aten.max.default)
 def _(mb, x, dim=(), keepdim=False):
     # dim=[] reduces everything; mb.max treats an empty list the same way.
     return mb.max(x, [int(d) for d in dim], bool(keepdim))
@@ -758,6 +759,34 @@ def _normalize_neg_index(mb, idx, size):
     return mb.where(mb.lt(idx, zero), from_end, idx)
 
 
+def _index_along(mb, x, dim, idx):
+    """`x` indexed by one index tensor along `dim`. An N-D index gathers its
+    flattened elements, then unflattens them in place of `dim`:
+    out = x.shape[:dim] + idx.shape + x.shape[dim+1:]."""
+    in_shape = list(x.shape)
+    idx_shape = list(idx.shape)
+    k = math.prod(idx_shape)
+    if len(idx_shape) != 1:
+        idx = mb.reshape(idx, [k])
+    gather_shape = list(in_shape)
+    gather_shape[dim] = k
+    view_shape = [1] * len(in_shape)
+    view_shape[dim] = k
+    idx_i32 = _normalize_neg_index(
+        mb, mb.typecast(idx, _native.DataType.Int32), in_shape[dim]
+    )
+    idx_full = mb.broadcast(mb.reshape(idx_i32, view_shape), gather_shape)
+    out = mb.gather(x, idx_full, dim)
+    out_shape = in_shape[:dim] + idx_shape + in_shape[dim + 1 :]
+    return out if out_shape == gather_shape else mb.reshape(out, out_shape)
+
+
+@_lowering(_aten.index_select.default)
+@_skip_prepare(_aten.index_select.default)
+def _(mb, x, dim, index):
+    return _index_along(mb, x, dim % len(x.shape), index)
+
+
 # Advanced indexing x[..., idx, ...] (aten.index.Tensor). `indices` is a per-dim
 # list of index tensors or None. Two supported shapes: a single index tensor
 # (gather along that dim), or index tensors covering all leading dims (flatten to
@@ -769,22 +798,7 @@ def _(mb, x, indices):
     in_shape = list(x.shape)
 
     if len(non_none) == 1:
-        dim, idx = non_none[0]
-        idx_shape = list(idx.shape)
-        if len(idx_shape) != 1:
-            raise NotImplementedError(
-                "tt-crank compile: single-index aten.index.Tensor requires a 1-D index"
-            )
-        k = idx_shape[0]
-        out_shape = list(in_shape)
-        out_shape[dim] = k
-        view_shape = [1] * len(in_shape)
-        view_shape[dim] = k
-        idx_i32 = _normalize_neg_index(
-            mb, mb.typecast(idx, _native.DataType.Int32), in_shape[dim]
-        )
-        idx_full = mb.broadcast(mb.reshape(idx_i32, view_shape), out_shape)
-        return mb.gather(x, idx_full, dim)
+        return _index_along(mb, x, *non_none[0])
 
     dims = [d for d, _ in non_none]
     k = len(non_none)
@@ -1230,6 +1244,7 @@ class CompileOption(StrEnum):
     EXPERIMENTAL_KV_CACHE_DTYPE = "experimental_kv_cache_dtype"  # BfpDtype
     MATH_FIDELITY = "math_fidelity"  # MathFidelity
     FP32_DEST_ACC_EN = "fp32_dest_acc_en"  # bool
+    MATH_APPROX_MODE = "math_approx_mode"  # bool
     EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN = (
         "experimental_enable_fusing_conv2d_with_multiply_pattern"  # bool
     )
@@ -1314,6 +1329,9 @@ def _compile_options(
 
     if CompileOption.FP32_DEST_ACC_EN in options:
         opts.fp32_dest_acc_en = options[CompileOption.FP32_DEST_ACC_EN]
+
+    if CompileOption.MATH_APPROX_MODE in options:
+        opts.math_approx_mode = options[CompileOption.MATH_APPROX_MODE]
 
     if CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN in options:
         opts.experimental_enable_fusing_conv2d_with_multiply_pattern = options[
