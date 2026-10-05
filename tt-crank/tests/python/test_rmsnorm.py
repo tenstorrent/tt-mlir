@@ -5,13 +5,17 @@
 from __future__ import annotations
 
 import contextlib
+import os
 
 import pytest
 import torch
 import torch.nn.functional as F
 from torch.utils._python_dispatch import TorchDispatchMode
 
-from tt_crank.torch.testing import strict_no_fallback
+from tt_crank.torch import _artifacts
+from tt_crank.torch._artifacts import collect_artifacts
+from tt_crank.torch._compile import CompileOption
+from tt_crank.torch.testing import post_aot_fx_hook, strict_no_fallback
 
 _FUSED_GRAD_FN = "FusedRmsNormBackward0"
 _DT = torch.bfloat16
@@ -361,3 +365,146 @@ def test_rmsnorm_stress(shape: tuple[int, ...], dist: str) -> None:
     ), "output off by more than two bf16 steps"
     _check(tt_x.grad, ref_x.grad, "grad_input")
     _check(tt_w.grad, ref_w.grad, "grad_weight")
+
+
+_SIM = os.environ.get("TT_CRANK_USE_SIMULATOR") == "1"
+_OPT1_ON_SIM = pytest.mark.xfail(
+    _SIM, reason="OPT_LEVEL 1 aborts under ttsim", run=False
+)
+_OPT_LEVELS = [0, pytest.param(1, marks=_OPT1_ON_SIM)]
+
+# input dtype, normalized_shape, weight dtype
+_COMPILE_OUTSIDE_TTML_CASES = {
+    "fp32": (torch.float32, (64,), torch.float32),
+    "fp32-two-dims": (torch.float32, (32, 64), torch.float32),
+    "bf16-two-dims": (_DT, (32, 64), _DT),
+}
+
+
+@pytest.mark.parametrize("opt_level", _OPT_LEVELS)
+@pytest.mark.parametrize(
+    "case", list(_COMPILE_OUTSIDE_TTML_CASES), ids=list(_COMPILE_OUTSIDE_TTML_CASES)
+)
+def test_rmsnorm_compile_direct_fused_op_outside_ttml(
+    case: str, opt_level: int
+) -> None:
+    x_dtype, normalized_shape, w_dtype = _COMPILE_OUTSIDE_TTML_CASES[case]
+    x = torch.randn(2, 32, 64, dtype=x_dtype)
+    w = torch.randn(*normalized_shape, dtype=w_dtype)
+    ref = F.rms_norm(x, normalized_shape, w, 1e-6)
+
+    ops: set[str] = set()
+
+    def record(gm):
+        ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
+
+    fn = torch.compile(
+        lambda a, b: torch.ops.aten._fused_rms_norm(a, list(normalized_shape), b, 1e-6)[
+            0
+        ],
+        backend="tt",
+        fullgraph=True,
+        options={CompileOption.OPT_LEVEL: opt_level},
+    )
+    with post_aot_fx_hook(record):
+        out = fn(x.to("tt"), w.to("tt"))
+    torch._dynamo.reset()
+
+    assert any("_fused_rms_norm" in op for op in ops), sorted(ops)
+    if x_dtype == torch.float32:
+        # tt's fp32 math is accurate to about one bf16 rounding; a promoted bf16 ttml kernel measures ~1e-2.
+        d = (out.cpu() - ref).abs()
+        rel_err = (d / ref.abs().clamp_min(1e-3)).max().item()
+        assert (
+            rel_err <= 2.0**-8 * 1.1
+        ), f"fp32 off by {rel_err:.3e}, more than one bf16 rounding (promoted to bf16 ttml?)"
+    else:
+        _check(out, ref, "output")
+
+
+@pytest.fixture
+def artifacts_tmp(tmp_path, monkeypatch):
+    monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
+
+
+def _compile_run(fn, opt_level: int, *args, backward: bool):
+    """Compile and run fn; return (result, post-aot op names, captured TTIR of every graph)."""
+    ops: set[str] = set()
+
+    def record(gm):
+        ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
+
+    compiled = torch.compile(
+        fn, backend="tt", fullgraph=True, options={CompileOption.OPT_LEVEL: opt_level}
+    )
+    with post_aot_fx_hook(record), collect_artifacts("rmsnorm") as collection:
+        result = compiled(*args)
+        if backward:
+            result.backward()
+    torch._dynamo.reset()
+    return result, ops, [a.compile_result.ttir for a in collection.artifacts]
+
+
+def _fused_inputs(case: str):
+    shape, has_weight, _, _ = _FUSED_CASES[case]
+    x = torch.randn(*shape, dtype=_DT)
+    if case in _INPUT_SCALE:
+        x = (x.float() * _INPUT_SCALE[case]).to(_DT)
+    w = torch.randn(shape[-1], dtype=_DT) if has_weight else None
+    return x, w
+
+
+@pytest.mark.parametrize("opt_level", _OPT_LEVELS)
+@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
+def test_rmsnorm_compile_fused(case: str, opt_level: int, artifacts_tmp) -> None:
+    shape, _, (x_grad, w_grad), eps = _FUSED_CASES[case]
+    x, w = _fused_inputs(case)
+    ref_x, ref_w = _leaf(x, x_grad), _leaf(w, w_grad)
+    ref_out = F.rms_norm(ref_x, (shape[-1],), ref_w, eps)
+    ref_out.sum().backward()
+
+    tt_x, tt_w = _leaf(x, x_grad, "tt"), _leaf(w, w_grad, "tt")
+    outs: list[torch.Tensor] = []
+
+    def fn(a, b):
+        outs.append(F.rms_norm(a, (shape[-1],), b, eps))
+        return outs[-1].sum()
+
+    _, ops, ttirs = _compile_run(fn, opt_level, tt_x, tt_w, backward=True)
+
+    assert "aten._fused_rms_norm.default" in ops, sorted(ops)
+    assert "aten._fused_rms_norm_backward.default" in ops, sorted(ops)
+    assert any("rmsnorm_fw" in t for t in ttirs), "no rmsnorm_fw composite"
+    assert any("rmsnorm_bw" in t for t in ttirs), "no rmsnorm_bw composite"
+    _check(outs[-1].detach(), ref_out.detach(), "output")
+    _check(tt_x.grad, ref_x.grad, "grad_input")
+    if w is not None:
+        _check(tt_w.grad, ref_w.grad, "grad_weight")
+
+
+# Compile keeps rms in bf16 so ttml can promote it. The inlined decomposition rounds once (2**-8); the ttml
+# kernel measures up to 5.3e-3 when C is not a multiple of 32, so OPT 1 allows two roundings.
+_RSTD_RTOL_COMPILE = {0: 2.0**-8 * 1.05, 1: 2.0**-7}
+
+
+@pytest.mark.parametrize("opt_level", _OPT_LEVELS)
+@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
+def test_rmsnorm_compile_rstd_precision(
+    case: str, opt_level: int, artifacts_tmp
+) -> None:
+    shape, _, _, eps = _FUSED_CASES[case]
+    x, w = _fused_inputs(case)
+    _, ref_rstd = torch.ops.aten._fused_rms_norm(x, [shape[-1]], w, eps)
+
+    def fn(a, b):
+        return torch.ops.aten._fused_rms_norm(a, [shape[-1]], b, eps)
+
+    (_, rstd), _, _ = _compile_run(
+        fn, opt_level, x.to("tt"), _leaf(w, False, "tt"), backward=False
+    )
+
+    assert rstd.dtype == torch.float32, f"rstd dtype {rstd.dtype}"
+    assert rstd.shape == ref_rstd.shape, f"rstd shape {tuple(rstd.shape)}"
+    rel_err = ((rstd.cpu() - ref_rstd).abs() / ref_rstd.abs()).max().item()
+    rtol = _RSTD_RTOL_COMPILE[opt_level]
+    assert rel_err <= rtol, f"rstd max relative error {rel_err:.3e} > {rtol:.3e}"
