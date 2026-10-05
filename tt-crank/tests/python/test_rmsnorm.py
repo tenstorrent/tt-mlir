@@ -387,31 +387,32 @@ _COMPILE_OUTSIDE_TTML_CASES = {
     "case", list(_COMPILE_OUTSIDE_TTML_CASES), ids=list(_COMPILE_OUTSIDE_TTML_CASES)
 )
 def test_rmsnorm_compile_direct_fused_op_outside_ttml(
-    case: str, opt_level: int
+    case: str, opt_level: int, artifacts_tmp
 ) -> None:
     x_dtype, normalized_shape, w_dtype = _COMPILE_OUTSIDE_TTML_CASES[case]
     x = torch.randn(2, 32, 64, dtype=x_dtype)
     w = torch.randn(*normalized_shape, dtype=w_dtype)
-    ref = F.rms_norm(x, normalized_shape, w, 1e-6)
+    ref_x, ref_w = _leaf(x, True), _leaf(w, True)
+    ref = F.rms_norm(ref_x, normalized_shape, ref_w, 1e-6)
+    ref.sum().backward()
+    ref = ref.detach()
 
-    ops: set[str] = set()
+    tt_x, tt_w = _leaf(x, True, "tt"), _leaf(w, True, "tt")
+    outs: list[torch.Tensor] = []
 
-    def record(gm):
-        ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
+    def fn(a, b):
+        outs.append(
+            torch.ops.aten._fused_rms_norm(a, list(normalized_shape), b, 1e-6)[0]
+        )
+        return outs[-1].sum()
 
-    fn = torch.compile(
-        lambda a, b: torch.ops.aten._fused_rms_norm(a, list(normalized_shape), b, 1e-6)[
-            0
-        ],
-        backend="tt",
-        fullgraph=True,
-        options={CompileOption.OPT_LEVEL: opt_level},
-    )
-    with post_aot_fx_hook(record):
-        out = fn(x.to("tt"), w.to("tt"))
-    torch._dynamo.reset()
+    _, ops, _ = _compile_run(fn, opt_level, tt_x, tt_w, backward=True)
+    out = outs[-1].detach()
 
-    assert any("_fused_rms_norm" in op for op in ops), sorted(ops)
+    assert "aten._fused_rms_norm.default" in ops, sorted(ops)
+    assert "aten._fused_rms_norm_backward.default" in ops, sorted(ops)
+    _check(tt_x.grad, ref_x.grad, "grad_input")
+    _check(tt_w.grad, ref_w.grad, "grad_weight")
     if x_dtype == torch.float32:
         # tt's fp32 math is accurate to about one bf16 rounding; a promoted bf16 ttml kernel measures ~1e-2.
         d = (out.cpu() - ref).abs()
