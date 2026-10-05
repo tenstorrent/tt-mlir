@@ -85,6 +85,7 @@ std::string CompileOptions::to_string() const {
     ss << ", experimental_kv_cache_dtype: " << opt_bfp(experimental_kv_cache_dtype);
     ss << ", math_fidelity: " << opt_fidelity(math_fidelity);
     ss << ", fp32_dest_acc_en: " << opt_bool(fp32_dest_acc_en);
+    ss << ", math_approx_mode: " << opt_bool(math_approx_mode);
     ss << ", experimental_enable_fusing_conv2d_with_multiply_pattern: "
        << opt_bool(experimental_enable_fusing_conv2d_with_multiply_pattern);
     ss << ", experimental_enable_permute_matmul_fusion: " << opt_bool(experimental_enable_permute_matmul_fusion);
@@ -117,6 +118,9 @@ void CompileOptions::set_options_on(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOpt
     }
     if (fp32_dest_acc_en.has_value()) {
         opts.computeCfgFp32DestAccEn = *fp32_dest_acc_en;
+    }
+    if (math_approx_mode.has_value()) {
+        opts.computeCfgMathApproxMode = *math_approx_mode;
     }
     if (experimental_enable_fusing_conv2d_with_multiply_pattern.has_value()) {
         opts.enableFusingConv2dWithMultiplyPattern = *experimental_enable_fusing_conv2d_with_multiply_pattern;
