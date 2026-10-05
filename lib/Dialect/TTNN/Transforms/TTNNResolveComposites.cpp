@@ -213,6 +213,37 @@ static void registerBuiltinComposites() {
     return;
   }
 
+  registry["softmax_backward"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 2u);
+        auto attrs = compositeOp.getCompositeAttributes();
+        TT_assert(attrs);
+        auto dimensionAttr = (*attrs).getAs<IntegerAttr>("dimension");
+        TT_assert(dimensionAttr);
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<SoftmaxBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            builder.getSI32IntegerAttr(
+                dimensionAttr.getValue().getSExtValue()));
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        TT_assert(compositeOp.getInputs().size() == 2u);
+        DictionaryAttr attrs = *compositeOp.getCompositeAttributes();
+        auto dimensionAttr = attrs.getAs<IntegerAttr>("dimension");
+        return builder.create<SoftmaxBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            builder.getSI32IntegerAttr(
+                dimensionAttr.getValue().getSExtValue()));
+      },
+      /*promotionGuard=*/nullptr};
+
   registry["rmsnorm_fw"] = CompositeEntry{
       // Validate
       [](ttcore::CompositeOp compositeOp,
@@ -295,6 +326,33 @@ static void registerBuiltinComposites() {
             compositeOp.getInputs()[0], compositeOp.getInputs()[1],
             compositeOp.getInputs()[2], attrs.getAs<FloatAttr>("epsilon"),
             attrs.getAs<BoolAttr>("return_mean_rstd"));
+      },
+      /*promotionGuard=*/nullptr};
+
+  registry["layernorm_bw"] = CompositeEntry{
+      // Validate
+      [](ttcore::CompositeOp compositeOp,
+         OpBuilder &builder) -> OpValidationResult {
+        TT_assert(compositeOp.getInputs().size() == 5u);
+        TT_assert(compositeOp.getNumResults() == 3u);
+        auto attrs = compositeOp.getCompositeAttributes();
+        TT_assert((!attrs || attrs->empty()));
+
+        SmallVector<Type> resultTypes(compositeOp.getResultTypes());
+        IsolatedIRValidationWrapper validator(compositeOp.getContext());
+        return validator.validateOp<LayerNormBackwardOp>(
+            compositeOp.getOperation(), compositeOp.getLoc(), resultTypes,
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3],
+            compositeOp.getInputs()[4]);
+      },
+      // Build
+      [](ttcore::CompositeOp compositeOp, OpBuilder &builder) -> Operation * {
+        return builder.create<LayerNormBackwardOp>(
+            compositeOp.getLoc(), compositeOp.getResultTypes(),
+            compositeOp.getInputs()[0], compositeOp.getInputs()[1],
+            compositeOp.getInputs()[2], compositeOp.getInputs()[3],
+            compositeOp.getInputs()[4]);
       },
       /*promotionGuard=*/nullptr};
 

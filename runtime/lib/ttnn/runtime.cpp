@@ -1640,6 +1640,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     }
     break;
   }
+  case ::tt::target::ttnn::OpType::SoftmaxBackwardOp: {
+    tensorRefs = {opContext.type_as_SoftmaxBackwardOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
     auto *op = opContext.type_as_RMSNormBackwardOp();
     tensorRefs = {op->grad_input(), op->grad_gamma()};
@@ -1654,6 +1658,11 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     if (op->rstd()) {
       tensorRefs.push_back(op->rstd());
     }
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormBackwardOp: {
+    auto *op = opContext.type_as_LayerNormBackwardOp();
+    tensorRefs = {op->dx(), op->dgamma(), op->dbeta()};
     break;
   }
   case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {
@@ -2069,6 +2078,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {op->input(), op->gamma()};
     break;
   }
+  case ::tt::target::ttnn::OpType::SoftmaxBackwardOp: {
+    auto *op = opContext.type_as_SoftmaxBackwardOp();
+    tensorRefs = {op->softmax_output(), op->grad()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::RMSNormBackwardOp: {
     auto *op = opContext.type_as_RMSNormBackwardOp();
     tensorRefs = {op->input(), op->gamma(), op->rms(), op->grad_output()};
@@ -2077,6 +2091,12 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   case ::tt::target::ttnn::OpType::LayerNormForwardOp: {
     auto *op = opContext.type_as_LayerNormForwardOp();
     tensorRefs = {op->input(), op->weight(), op->bias()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::LayerNormBackwardOp: {
+    auto *op = opContext.type_as_LayerNormBackwardOp();
+    tensorRefs = {op->input(), op->gamma(), op->mean(), op->rstd(),
+                  op->dl_dout()};
     break;
   }
   case ::tt::target::ttnn::OpType::CrossEntropyForwardOp: {

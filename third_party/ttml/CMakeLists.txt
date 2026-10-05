@@ -27,6 +27,9 @@ set(TTML_METAL_OP_SRCS
   ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/rmsnorm_fw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/device/rmsnorm_fw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/rmsnorm_fw/device/rmsnorm_fw_program_factory.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/layernorm_bw/layernorm_bw.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/layernorm_bw/device/layernorm_bw_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/layernorm_bw/device/layernorm_bw_program_factory.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/sdpa_fw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/device/sdpa_fw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_fw/device/sdpa_fw_program_factory.cpp
@@ -35,6 +38,9 @@ set(TTML_METAL_OP_SRCS
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_q_program_factory.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_kv_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/sdpa_bw/device/sdpa_bw_kv_program_factory.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/softmax_backward/softmax_backward.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/softmax_backward/device/softmax_backward_device_operation.cpp
+  ${TTML_SOURCE_DIR}/metal/ops/softmax_backward/device/softmax_backward_program_factory.cpp
   ${TTML_SOURCE_DIR}/metal/ops/swiglu_elemwise_bw/swiglu_elemwise_bw.cpp
   ${TTML_SOURCE_DIR}/metal/ops/swiglu_elemwise_bw/device/swiglu_elemwise_bw_device_operation.cpp
   ${TTML_SOURCE_DIR}/metal/ops/swiglu_elemwise_bw/device/swiglu_elemwise_bw_program_factory.cpp
@@ -49,6 +55,7 @@ set_source_files_properties(${TTML_METAL_OP_SRCS} PROPERTIES GENERATED TRUE)
 
 add_library(ttml_metal_ops STATIC ${TTML_METAL_OP_SRCS})
 set_property(TARGET ttml_metal_ops PROPERTY CXX_STANDARD 20)
+
 if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|x86|i386|i686)$")
   target_compile_options(ttml_metal_ops PRIVATE -march=x86-64-v3)
 endif()

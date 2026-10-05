@@ -1414,6 +1414,34 @@ def TTNN_SoftmaxOp : TTNN_Op<"softmax", [TTNN_ComputeKernelConfigOpInterface]> {
     let hasVerifier = 1;
 }
 
+def TTNN_SoftmaxBackwardOp : TTNN_Op<"softmax_backward"> {
+    let summary = "Softmax backward (ttml).";
+    let description = [{
+      Computes the softmax gradient
+
+        grad_input = softmax_output *
+                     (grad - sum(softmax_output * grad, dim, keepdim=true))
+
+      using `ttml::metal::softmax_backward`. Operands and result must have the
+      same shape and element type (bfloat16 or float32), use TILE layout, and
+      `dimension` must select the last dimension.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$softmax_output,
+                         AnyRankedTensor:$grad,
+                         SI32Attr:$dimension);
+    let results = (outs AnyRankedTensor:$result);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createSoftmaxBackwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
 def TTNN_SortOp : TTNN_Op<"sort"> {
   let summary = "Sort op.";
   let description = [{
@@ -3028,6 +3056,40 @@ def TTNN_LayerNormForwardOp : TTNN_Op<"layernorm_fw",
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
         return wa::TTNNOperandsWorkaroundsFactory::
             createLayerNormForwardOpOperandsWorkarounds(this->getOperation());
+      }
+    }];
+
+    let hasVerifier = 1;
+}
+
+def TTNN_LayerNormBackwardOp : TTNN_Op<"layernorm_bw"> {
+    let summary = "Layer normalization backward (ttml).";
+    let description = [{
+      Training-oriented fused layer normalization backward pass, backed by
+      `ttml::metal::layernorm_bw`. Given the original input, affine scale,
+      forward mean and reciprocal standard deviation, and upstream gradient,
+      it returns the input, gamma, and beta gradients.
+
+      The backing kernel requires rank-4 tensors: `input` and `dL_dout` are
+      `(B, N, S, C)`, `gamma` is `(1, 1, 1, C)`, and `mean`/`rstd` are
+      `(B, N, S, 1)`. All inputs and outputs must be bfloat16, tiled, and
+      interleaved in DRAM; the workarounds pass enforces these requirements.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         AnyRankedTensor:$gamma,
+                         AnyRankedTensor:$mean,
+                         AnyRankedTensor:$rstd,
+                         AnyRankedTensor:$dL_dout);
+
+    let results = (outs AnyRankedTensor:$dx,
+                        AnyRankedTensor:$dgamma,
+                        AnyRankedTensor:$dbeta);
+
+    let extraClassDeclaration = [{
+      wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
+        return wa::TTNNOperandsWorkaroundsFactory::
+            createLayerNormBackwardOpOperandsWorkarounds(this->getOperation());
       }
     }];
 

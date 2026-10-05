@@ -4712,6 +4712,32 @@ RMSNormForwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
 }
 
 //===----------------------------------------------------------------------===//
+// SoftmaxBackwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> SoftmaxBackwardOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  assert(inputs.size() == 2 && "SoftmaxBackwardOp must have 2 inputs");
+  return detail::constraintsDispatch(
+      *this, liveRecords, getSoftmaxOutput().getType().getShape(), inputs[0],
+      getGrad().getType().getShape(), inputs[1], getDimension(),
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+SoftmaxBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                const OpConfig &opConfig) {
+  assert(inputs.size() == 2 && "SoftmaxBackwardOp must have 2 inputs");
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<SoftmaxBackwardOp>::getOpRuntime, *this,
+      getSoftmaxOutput().getType().getShape(), inputs[0],
+      getGrad().getType().getShape(), inputs[1], getDimension(),
+      opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
 // RMSNormBackwardOp - TTNN Op Model Interface
 //===----------------------------------------------------------------------===//
 
@@ -4774,6 +4800,36 @@ LayerNormForwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       op_model::OpModel<LayerNormForwardOp>::getOpRuntime, *this, inputShape,
       inputs[0], weightShape, inputs[1], biasShape, inputs[2], getEpsilon(),
       getReturnMeanRstd(), opConfig.outputLayout);
+}
+
+//===----------------------------------------------------------------------===//
+// LayerNormBackwardOp - TTNN Op Model Interface
+//===----------------------------------------------------------------------===//
+
+llvm::Expected<op_model::OpConstraints> LayerNormBackwardOp::getOpConstraints(
+    const std::vector<TTNNLayoutAttr> &inputs, const OpConfig &opConfig,
+    std::optional<llvm::ArrayRef<op_model::OpModelAllocationRecord>>
+        liveRecords) {
+  assert(inputs.size() == 5 && "LayerNormBackwardOp must have 5 inputs");
+  return detail::constraintsDispatch(
+      *this, liveRecords, getInput().getType().getShape(), inputs[0],
+      getGamma().getType().getShape(), inputs[1],
+      getMean().getType().getShape(), inputs[2], getRstd().getType().getShape(),
+      inputs[3], getDLDout().getType().getShape(), inputs[4],
+      opConfig.outputLayout);
+}
+
+llvm::Expected<size_t>
+LayerNormBackwardOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                                  const OpConfig &opConfig) {
+  assert(inputs.size() == 5 && "LayerNormBackwardOp must have 5 inputs");
+  return opRuntimeCache().getOrCompute(
+      op_model::OpModel<LayerNormBackwardOp>::getOpRuntime, *this,
+      getInput().getType().getShape(), inputs[0],
+      getGamma().getType().getShape(), inputs[1],
+      getMean().getType().getShape(), inputs[2], getRstd().getType().getShape(),
+      inputs[3], getDLDout().getType().getShape(), inputs[4],
+      opConfig.outputLayout);
 }
 
 //===----------------------------------------------------------------------===//

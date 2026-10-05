@@ -1713,6 +1713,18 @@ createOp(FlatbufferObjectCache &cache, RMSNormForwardOp op) {
       op.getEpsilon().convertToFloat(), output, rms);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::SoftmaxBackwardOp>
+createOp(FlatbufferObjectCache &cache, SoftmaxBackwardOp op) {
+  auto softmaxOutput = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getSoftmaxOutput()));
+  auto grad = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getGrad()));
+  auto output = cache.getOrCreateNoSharding(
+      op.getResult(), tensorValueToFlatbuffer, /*local_shape*/ std::nullopt);
+  return ::tt::target::ttnn::CreateSoftmaxBackwardOp(
+      *cache.fbb, softmaxOutput, grad, op.getDimension(), output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::RMSNormBackwardOp>
 createOp(FlatbufferObjectCache &cache, RMSNormBackwardOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -1757,6 +1769,23 @@ createOp(FlatbufferObjectCache &cache, LayerNormForwardOp op) {
   return ::tt::target::ttnn::CreateLayerNormForwardOp(
       *cache.fbb, input, weight, bias, op.getEpsilon().convertToFloat(),
       op.getReturnMeanRstd(), output, mean, rstd);
+}
+
+::flatbuffers::Offset<::tt::target::ttnn::LayerNormBackwardOp>
+createOp(FlatbufferObjectCache &cache, LayerNormBackwardOp op) {
+  auto getInput = [&](Value value) {
+    return cache.at<::tt::target::ttnn::TensorRef>(
+        getOperandThroughDPSOps(value));
+  };
+  auto getOutput = [&](Value value) {
+    return cache.getOrCreateNoSharding(value, tensorValueToFlatbuffer,
+                                       /*local_shape*/ std::nullopt);
+  };
+  return ::tt::target::ttnn::CreateLayerNormBackwardOp(
+      *cache.fbb, getInput(op.getInput()), getInput(op.getGamma()),
+      getInput(op.getMean()), getInput(op.getRstd()), getInput(op.getDLDout()),
+      getOutput(op.getDx()), getOutput(op.getDgamma()),
+      getOutput(op.getDbeta()));
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::SDPABackwardOp>
@@ -4714,6 +4743,11 @@ emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
     return createOperation(cache, createOp(cache, rmsNormForwardOp),
                            debugString, locInfo);
   }
+  if (auto softmaxBackwardOp = dyn_cast<SoftmaxBackwardOp>(op);
+      softmaxBackwardOp) {
+    return createOperation(cache, createOp(cache, softmaxBackwardOp),
+                           debugString, locInfo);
+  }
   if (auto rmsNormBackwardOp = dyn_cast<RMSNormBackwardOp>(op);
       rmsNormBackwardOp) {
     return createOperation(cache, createOp(cache, rmsNormBackwardOp),
@@ -4722,6 +4756,11 @@ emitTTMLOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto layerNormForwardOp = dyn_cast<LayerNormForwardOp>(op);
       layerNormForwardOp) {
     return createOperation(cache, createOp(cache, layerNormForwardOp),
+                           debugString, locInfo);
+  }
+  if (auto layerNormBackwardOp = dyn_cast<LayerNormBackwardOp>(op);
+      layerNormBackwardOp) {
+    return createOperation(cache, createOp(cache, layerNormBackwardOp),
                            debugString, locInfo);
   }
   if (auto crossEntropyFwOp = dyn_cast<CrossEntropyForwardOp>(op);
