@@ -819,7 +819,7 @@ void MemoryLayoutPropagation::addReshardCandidates(
   if (isConstantDerivedOperand(operand)) {
     return;
   }
-  if (!shouldExploreReshards(op)) {
+  if (!shouldExploreReshards(op, operandIdx)) {
     return;
   }
 

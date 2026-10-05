@@ -43,9 +43,8 @@ struct OutputHints {
 OutputHints getOutputHints(Operation *op,
                            const std::vector<OpConfig> &legalConfigs);
 
-/// Whether an op should participate in reshard exploration at all.
-/// Returns false for ops that must always be DRAM (e.g., reshape, permute).
-bool shouldExploreReshards(Operation *op);
+/// Whether to generate reshard candidates for an op's operand.
+bool shouldExploreReshards(Operation *op, unsigned operandIdx);
 
 /// Whether the greedy search should synthesize a ROW_MAJOR sibling for each
 /// tiled input candidate at the given operand index.
