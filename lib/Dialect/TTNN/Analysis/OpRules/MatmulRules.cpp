@@ -401,11 +401,24 @@ MatmulRuleBook::buildDRAMShardingHint(Operation *op) const {
 
 OutputHints MatmulRuleBook::getOutputHints(
     Operation *op, const std::vector<OpConfig> &legalConfigs) const {
-
+  // Use partial configs: deduplicate by (bufferType, memLayout),
+  // set ignorePhysicalLayout=true. Backend decides physical layout.
   auto partialConfigs =
       optimizer_utils::getUniqueTestConfigsForMatmulLinear(legalConfigs);
 
-  // Filter out L1-interleaved and sharded configs without a program config.
+  // Remove L1-interleaved hints for matmul/linear output.
+  //
+  // L1-interleaved output is "worst of both worlds" for matmul:
+  //  - generateMatmulProgramConfig() returns nullopt for non-sharded
+  //    output, so no program config is emitted by the compiler and
+  //    tt-metal's auto-picker chooses one at runtime.
+  //  - Same NOC write overhead as DRAM interleaved (not eliminated
+  //    like sharded).
+  //  - Subject to L1 capacity constraints unlike DRAM interleaved.
+  //
+  // DRAM-interleaved is the safe default, with no L1 pressure from the
+  // output tensor. L1-sharded is best when applicable (eliminates NOC
+  // writes entirely). https://github.com/tenstorrent/tt-mlir/issues/7682
   std::vector<OpConfig> filtered;
   for (const auto &cfg : partialConfigs) {
     if (isL1Interleaved(cfg)) {
@@ -442,6 +455,7 @@ LayoutFilterFn MatmulRuleBook::getInputLayoutFilter(unsigned operandIdx) const {
   if (operandIdx == 1) {
     return acceptWeightLayout;
   }
+  // Activation and bias operands are unrestricted.
   return nullptr;
 }
 

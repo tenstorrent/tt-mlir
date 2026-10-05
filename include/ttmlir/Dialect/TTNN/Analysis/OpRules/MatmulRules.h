@@ -24,15 +24,16 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 struct MatmulRuleBook : OpRuleBook {
-  /// Output hints: for DS-eligible matmuls, the DS hint is included alongside
-  /// the normal partial configs. adjustScore ranks the DS hint through
-  /// LayoutScore::rulePreference. For non-eligible matmuls: normal behavior.
+  /// Output hints: partial configs without L1-interleaved, plus the DS hint
+  /// for DS-eligible matmuls. adjustScore ranks the DS hint through
+  /// LayoutScore::rulePreference.
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 
   /// Operand 1 (weight): interleaved layouts as for any matmul, plus the DRAM
   /// width-sharded layout getExtraInputReshardCandidates injects for DS.
+  /// Activation and bias are unrestricted.
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
   /// Apply MatmulProgramConfig + fused activation dedup.
