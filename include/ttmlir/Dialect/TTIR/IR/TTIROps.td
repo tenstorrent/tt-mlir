@@ -5382,9 +5382,9 @@ def TTIR_PixelUnshuffleOp : TTIR_NamedOp<"pixel_unshuffle"> {
 
       channels_last = true emits the result as NHWC, [N, H/r, W/r, Cp], where
       Cp = padded_channels (>= C*r^2; the extra channels are zero). This is the
-      row-major activation a 1x1 conv2d / linear consumes directly (used by the
-      stem fold: pixel_unshuffle(4, channels_last) + 1x1 conv replaces the whole
-      YUV stem). channel_order applies to the first C*r^2 channels as usual.
+      row-major activation a 1x1 conv2d / linear consumes directly (used by
+      TTIRStemFold, which replaces a linear image stem by pixel_unshuffle +
+      1x1 conv). channel_order applies to the first C*r^2 channels as usual.
 
       Example (Y path, C=1, r=4 — both orderings equivalent):
       ```mlir

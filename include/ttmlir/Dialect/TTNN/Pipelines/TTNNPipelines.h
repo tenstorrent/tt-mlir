@@ -398,6 +398,20 @@ struct TTIRToTTNNCommonPipelineOptions
                            llvm::cl::desc("Enable trace optimization pass."),
                            llvm::cl::init(false)};
 
+  // Fold a linear image stem (1x1 mix conv, space-to-depth branches, concat,
+  // 1x1 conv) into pixel_unshuffle(channels_last) + 1x1 conv (TTIRStemFold)
+  // and place it (TTNNStemFoldLinear), straight from the input TTIR.
+  // Mutually exclusive with the per-op stem passes
+  // (TTIRSpatialRowGroupPackingOpt, TTIRDepthwiseConvSpatialPackingOpt,
+  // TTIRPixelUnshuffleOpt, TTNNPixelUnshuffleL1Opt,
+  // TTNNSpatialPackActivationRowMajorOpt), which run only when this is off.
+  // The environment variable TTMLIR_DISABLE_STEM_FOLD=1 turns it off for A/B.
+  Option<bool> enableStemFold{
+      *this, "enable-stem-fold",
+      llvm::cl::desc("Fold a linear image stem into pixel_unshuffle + 1x1 conv "
+                     "(disables the per-op stem passes)."),
+      llvm::cl::init(true)};
+
   // Option to specify the target bit width for quantized data types.
   Option<uint32_t> quantBitWidth{
       *this, "target-bit-width",

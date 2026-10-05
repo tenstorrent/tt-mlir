@@ -30,6 +30,12 @@ namespace mlir::tt::ttnn {
 // Helper functions which combine multiple passes into logical groupings.
 //===----------------------------------------------------------------------===//
 
+// Stem fold on/off switch shared by the TTIR and TTNN stages (see
+// createTTNNPipelineTTIRPasses for what it toggles).
+static bool stemFoldEnabled(const TTIRToTTNNCommonPipelineOptions &options) {
+  return options.enableStemFold && !std::getenv("TTMLIR_DISABLE_STEM_FOLD");
+}
+
 void createTTNNPipelineTTIRPasses(
     OpPassManager &pm, const TTIRToTTNNCommonPipelineOptions &options) {
 
@@ -76,18 +82,33 @@ void createTTNNPipelineTTIRPasses(
   // Propagate per-arg weight_dtype annotations through TM ops to consumers.
   pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
 
-  // Spatial row-group packing for narrow-channel 1x1 pointwise conv2d where
-  // IC is coprime to TILE_WIDTH=32 (e.g. IC=3 YUV adapter). Eliminates the
-  // permute→conv2d→permute pattern by replacing it with reshape→linear→reshape.
-  pm.addPass(mlir::tt::ttir::createTTIRSpatialRowGroupPackingOpt());
-  // Spatial row-group packing for narrow-channel depthwise conv2d (IC < TILE_WIDTH):
-  // packs IC channels to TILE_WIDTH to eliminate TILE padding waste on the
-  // NCHW→NHWC permute, moving the permute output to L1.
-  pm.addPass(mlir::tt::ttir::createTTIRDepthwiseConvSpatialPackingOpt());
-  // Fuse 6D reshape->permute{0,3,5,1,2,4}->reshape chain into
-  // ttir.pixel_unshuffle, eliminating 87.5-93.75% DRAM tile-padding waste
-  // from the intermediate 6D TILE reshape.
-  pm.addPass(mlir::tt::ttir::createTTIRPixelUnshuffleOpt());
+  // A linear image stem (1x1 mix conv, space-to-depth branches, concat, 1x1
+  // conv) is handled by exactly one of two mechanisms:
+  //  - stem fold (default): TTIRStemFold rewrites the whole stem, straight
+  //    from the input TTIR, into pixel_unshuffle(channels_last) + one 1x1 conv
+  //    (placed later by TTNNStemFoldLinear);
+  //  - the earlier per-op passes: spatial row-group packing of the 3-channel
+  //    mix conv, packing of the narrow depthwise conv, 6D-chain fusion into
+  //    pixel_unshuffle (TTIRPixelUnshuffleOpt), plus TTNNPixelUnshuffleL1Opt
+  //    and TTNNSpatialPackActivationRowMajorOpt at TTNN level.
+  // They are mutually exclusive: enable-stem-fold=false (or
+  // TTMLIR_DISABLE_STEM_FOLD=1) turns the fold off and the five passes on.
+  if (stemFoldEnabled(options)) {
+    pm.addPass(mlir::tt::ttir::createTTIRStemFold());
+  } else {
+    // Spatial row-group packing for narrow-channel 1x1 pointwise conv2d where
+    // IC is coprime to TILE_WIDTH=32 (e.g. IC=3 YUV adapter). Eliminates the
+    // permute→conv2d→permute pattern by replacing it with reshape→linear→reshape.
+    pm.addPass(mlir::tt::ttir::createTTIRSpatialRowGroupPackingOpt());
+    // Spatial row-group packing for narrow-channel depthwise conv2d (IC < TILE_WIDTH):
+    // packs IC channels to TILE_WIDTH to eliminate TILE padding waste on the
+    // NCHW→NHWC permute, moving the permute output to L1.
+    pm.addPass(mlir::tt::ttir::createTTIRDepthwiseConvSpatialPackingOpt());
+    // Fuse 6D reshape->permute{0,3,5,1,2,4}->reshape chain into
+    // ttir.pixel_unshuffle, eliminating 87.5-93.75% DRAM tile-padding waste
+    // from the intermediate 6D TILE reshape.
+    pm.addPass(mlir::tt::ttir::createTTIRPixelUnshuffleOpt());
+  }
 
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
@@ -131,6 +152,7 @@ void createTTNNPipelineAnalysisPasses(
     validationOptions.maxFallbackAttempts = options.maxFallbackAttempts;
 
     BFPDtype conv2dWeightDtype = options.experimentalConv2dWeightDtype;
+    bool stemFold = stemFoldEnabled(options);
 
     // Greedy optimizer: memory layout propagation + L1 spill management.
     TTNNGreedyMemoryLayoutPropagationPipelineOptions propagationOptions;
@@ -153,8 +175,8 @@ void createTTNNPipelineAnalysisPasses(
 
     bool memLayoutEnabled = options.memoryLayoutAnalysisEnabled;
     pm.addPass(createDevicePassesWrapper(
-        [propagationOptions, spillOptions, validationOptions,
-         memLayoutEnabled, conv2dWeightDtype](OpPassManager &innerPm) {
+        [propagationOptions, spillOptions, validationOptions, memLayoutEnabled,
+         conv2dWeightDtype, stemFold](OpPassManager &innerPm) {
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
           innerPm.addPass(mlir::tt::ttnn::createTTNNDeduceMoEComputeLayouts());
@@ -169,6 +191,15 @@ void createTTNNPipelineAnalysisPasses(
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNOperationValidationAndFallback(
                   validationOptions));
+          // Place the folded stem (pixel_unshuffle(channels_last) ->
+          // to_layout -> linear) now that every other layout is chosen and
+          // before the conv2d weights are prepared.
+          if (stemFold) {
+            TTNNStemFoldLinearOptions stemFoldOptions;
+            stemFoldOptions.targetDtype = conv2dWeightDtype;
+            innerPm.addPass(
+                mlir::tt::ttnn::createTTNNStemFoldLinear(stemFoldOptions));
+          }
           if (conv2dWeightDtype != BFPDtype::None) {
             TTNNConv2dWeightDtypeConversionOptions conv2dDtypeOpts;
             conv2dDtypeOpts.targetDtype = conv2dWeightDtype;
@@ -326,7 +357,17 @@ void createTTNNPipelineLayoutDecompositionPass(
   // chain, causing a CB clash for downstream height_sharded conv2d outputs.
   // This pass rebuilds each op in-place with memory_config=L1_interleaved and
   // output_layout=TILE, restoring the HWM without inserting a to_memory_config.
-  pm.addPass(createTTNNPixelUnshuffleL1Opt());
+  // Stem fold on: place the folded stem here when the optimizer did not run.
+  // Stem fold off: the NCHW pixel_unshuffle L1 placement of the per-op passes.
+  if (stemFoldEnabled(options)) {
+    if (!options.optimizerPassEnabled) {
+      TTNNStemFoldLinearOptions stemFoldOptions;
+      stemFoldOptions.targetDtype = options.experimentalConv2dWeightDtype;
+      pm.addPass(createTTNNStemFoldLinear(stemFoldOptions));
+    }
+  } else {
+    pm.addPass(createTTNNPixelUnshuffleL1Opt());
+  }
 
   // Remove the unnecessary TILE round-trip for GridSample LUT grid tensors.
   // The LUT arrives ROW_MAJOR; GridSample requires ROW_MAJOR; the TILE
@@ -338,7 +379,9 @@ void createTTNNPipelineLayoutDecompositionPass(
   // Move to_layout(TILE) to after the spatial packing chain — always runs.
   // Handles both NHWC (reshape→permute→reshape→linear) and NCHW (reshape→linear)
   // paths. For NCHW path: also fuses the bias AddOp into ttnn.linear.
-  pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
+  if (!stemFoldEnabled(options)) {
+    pm.addPass(createTTNNSpatialPackActivationRowMajorOpt());
+  }
 
 
 

@@ -645,6 +645,93 @@ def TTIRPixelUnshuffleOpt : Pass<"ttir-pixel-unshuffle-opt", "::mlir::ModuleOp">
   let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
 }
 
+def TTIRStemFold : Pass<"ttir-stem-fold", "::mlir::ModuleOp"> {
+  let summary = "Fold a linear image stem (1x1 mix conv, two space-to-depth branches, concat, 1x1 conv) into pixel_unshuffle(channels_last) + one 1x1 conv.";
+  let description = [{
+    Matches the stem directly in the input TTIR (no other stem pass runs in
+    front of it) and replaces it by one pixel_unshuffle and one 1x1 conv whose
+    weight and bias are computed from the stem's own parameters.
+
+    BEFORE (symbolic shapes; every conv2d carries batch_dim=0, height_dim=1,
+    width_dim=2, channel_dim=3 and {channel_last}):
+
+      %x  : NxCinxHxW input (NCHW)   %Wm : CmxCinx1x1, %bm : 1x1x1xCm (mix)   %Wa : Cux1xkhxkw (average taps)
+      %W1 : CoutxCfeatx1x1, %b1 : 1x1x1xCout, Cfeat = Cy*R^2 + Cu*(R/s)^2
+
+      %m1 = transpose x2 / permute [0,2,3,1] (%x)              -> NxHxWxCin
+      %m2 = conv2d(%m1, %Wm, %bm) k=1x1 s=1 p=0 g=1            -> NxHxWxCm           (a) mix
+      %m  = transpose x2 / permute [0,3,1,2] (%m2)             -> NxCmxHxW           mix, NCHW
+      %d0 = index(%m) dim=1 [a,b)  (or slice_static)           -> NxCyxHxW
+      %d1 = reshape(%d0) [N,Cy,H/R,R,W/R,R] ; transposes       -> composed {0,3,5,1,2,4} or {0,1,3,5,2,4}
+      %d  = reshape [N,Cy*R^2,H/R,W/R]                         -> NxCy*R^2xH/RxW/R    (b) direct branch, s2d(R)
+      %u0 = index(%m) dim=1 [c,d)                              -> NxCuxHxW
+      %u1 = permute [0,2,3,1] (%u0)                            -> NxHxWxCu
+      %u2 = conv2d(%u1, %Wa) k=khxkw s=s p=0 g=Cu, no bias      -> NxH/sxW/sxCu        (c) average, kh,kw <= s
+      %u3 = permute [0,3,1,2] (%u2)                            -> NxCuxH/sxW/s
+      %u4 = reshape(%u3) [N,Cu,H/R,R/s,W/R,R/s] ; transposes   -> composed as above
+      %u  = reshape [N,Cu*(R/s)^2,H/R,W/R]                     -> NxCu*(R/s)^2xH/RxW/R (c) averaged branch, s2d(R/s)
+      %f  = concat(%d, %u) dim=1                               -> NxCfeatxH/RxW/R     (d)
+      %f1 = permute [0,2,3,1] (%f)                             -> NxH/RxW/RxCfeat
+      %y  = conv2d(%f1, %W1, %b1) k=1x1 s=1 p=0 g=1            -> NxH/RxW/RxCout      (e)  anchor
+      %z  = clamp_scalar / relu6 (%y)                           -> NxH/RxW/RxCout      kept
+
+    AFTER:
+
+      %W, %b = weight fold of (%Wm, %bm, %Wa, %W1, %b1)        CoutxCpx1x1, 1x1x1xCout   (below)
+      %pu = pixel_unshuffle(%x) {downscale_factor = R, channel_order = channel_major,
+                                 channels_last = true, padded_channels = Cp}   -> NxH/RxW/RxCp (NHWC)
+      %y  = conv2d(%pu, %W, %b) k=1x1 s=1 p=0 g=1 {channel_last}                -> NxH/RxW/RxCout
+      %z  = clamp_scalar / relu6 (%y)                                            unchanged
+
+    Cp = Cin*R^2 rounded up to a multiple of 32; the kernel zero-pads the
+    channels and W has zero rows for them.
+
+    Why it is exact: every op in (a)..(e) is linear and output pixel (u,v) reads
+    only the RxR input block (rows R*u..R*u+R-1, cols R*v..R*v+R-1; the average
+    reads rows R*u + s*ey + i, cols R*v + s*ex + k of that block with i < kh <= s,
+    k < kw <= s), so the stem is one RxR / stride-R conv Cin->Cout, i.e. a 1x1
+    conv on pixel_unshuffle(x, R).
+
+    Weight fold (fused input channel k = c*R^2 + q, q = dy*R + dx; feature index j
+    = position in the concat, inside a branch of C channels and factor r it is
+    dy*(r*C) + dx*C + c (spatial-major) or c*r^2 + dy*r + dx (channel-major)):
+
+      Wm = reshape(%Wm) -> CmxCin ;  bm = reshape(%bm) -> 1xCm ;  W1 = reshape(%W1) -> CoutxCfeat
+      per branch b (direct: C_b = Cy, r = R, T = 1, V_b = Wm rows; averaged: C_b = Cu, r = R/s, T = kh*kw):
+        V_b  = Wa[c_b,t] * Wm[c0+c_b, c]  (broadcast multiply C_bxTx1 * C_bx1xCin)  -> reshape [C_b*T, Cin]
+        Q_b  = 0/1 constant [F_b*R^2, C_b*T] : row (j,q), col (c_b,t) = 1 iff feature j is channel c_b at
+               sub-position (ey,ex) and q == (s*ey+i)*R + (s*ex+k), tap t = i*kw + k
+        G_b  = reshape(permute(reshape(Q_b @ V_b -> [F_b*R^2, Cin], [F_b, R^2, Cin]), [0,2,1]), [F_b, Cin*R^2])
+      G    = concat(G_b, concat order) dim 0 -> CfeatxCin*R^2
+      W_eq = W1 @ G -> CoutxCin*R^2 ;  W = reshape(pad(W_eq, [0,0,0,Cp-Cin*R^2], 0.0), [Cout,Cp,1,1])
+      per branch b: coef_b = bm[c0+c_b] * Wa[c_b,t] -> [1, C_b*T] ;  Qq_b = 0/1 constant [C_b*T, F_b] :
+               (c_b,t) -> j iff feature j belongs to channel c_b
+      f0   = reshape(concat(coef_b @ Qq_b) dim 1, [Cfeat, 1])
+      b    = reshape(W1 @ f0, [1,1,1,Cout]) + %b1          (b_eq = W1 @ f0 + b1)
+
+    All of it depends on parameters and constants only, so the const-eval hoist
+    runs it once.
+
+    Match restrictions: exactly this structure - a 1x1 conv with bias whose
+    input is the NHWC view of a two-operand channel concat of space-to-depth
+    blocks, one fed by a channel slice of the mix output, the other through a
+    grouped [kh,kw]/stride-s conv (kh, kw <= s, no bias) of a channel slice of
+    the same mix output, the mix output being the NCHW view of a 1x1 conv on the
+    NCHW->NHWC view of the input; r_direct == r_avg * s; every intermediate has a
+    single use; all weights are parameters or constants. Space-to-depth blocks
+    are matched raw (reshape -> transpose/permute chain -> reshape, channel order
+    from the composed 6D permutation) or as a fused ttir.pixel_unshuffle.
+
+    TTNNStemFoldLinear places the result after the optimizer (pixel_unshuffle
+    row-major height-sharded in L1, in-place tilize, the 1x1 conv as ttnn.linear
+    with a small-block 1-D matmul config). The pipeline runs this pass instead
+    of the per-op stem passes (TTIRSpatialRowGroupPackingOpt,
+    TTIRDepthwiseConvSpatialPackingOpt, TTIRPixelUnshuffleOpt,
+    TTNNPixelUnshuffleL1Opt, TTNNSpatialPackActivationRowMajorOpt).
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRDepthwiseConvSpatialPackingOpt : Pass<"ttir-depthwise-conv-spatial-packing-opt", "::mlir::ModuleOp"> {
   let summary = "Spatial row-group packing for depthwise conv2d with narrow channel count.";
   let description = [{

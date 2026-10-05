@@ -1039,6 +1039,67 @@ def TTNNGridSampleLayoutOptimizer : Pass<"ttnn-grid-sample-layout-opt", "::mlir:
 }
 
 
+def TTNNStemFoldLinear : Pass<"ttnn-stem-fold-linear", "::mlir::ModuleOp"> {
+  let summary = "Place the folded stem: pixel_unshuffle(channels_last) height-sharded in L1, in-place tilize, the 1x1 conv as ttnn.linear.";
+  let description = [{
+    TTIRStemFold rewrites a linear image stem to pixel_unshuffle(channels_last)
+    + a 1x1 conv2d. pixel_unshuffle has no op-model, so the optimizer leaves its
+    result in DRAM and plans the conv from there. This pass runs after the
+    optimizer (inside its device-pass group, before conv2d weight preparation)
+    and turns the triple into the placement the kernels want. P = N*H/R*W/R
+    pixels, Cp padded input channels, Cout output channels, G worker cores.
+
+    BEFORE (after lowering and the optimizer):
+
+      %pu   = ttnn.pixel_unshuffle(%x) {downscale_factor = R, channel_major, channels_last, padded_channels = Cp}
+              : NxCinxHxW rm dram -> NxH/RxW/RxCp dram interleaved
+      %flat = ttnn.reshape(%pu) [1,1,P,Cp]                        -> 1x1xPxCp dram interleaved
+      %y    = ttnn.conv2d(%flat, %W CoutxCpx1x1 (host), %b 1x1x1xCout (host))
+              {kernel [1,1], stride [1,1], padding 0, groups 1, conv2d_config<activation, shard_layout, ...>}
+              -> 1x1xPxCout, layout chosen by the optimizer
+
+    AFTER:
+
+      %pu   = ttnn.pixel_unshuffle(%x) {same attributes,
+                memory_config = <#l1, height_sharded, shard_spec<full grid, [P/G, Cp], row_major>>}
+              -> NxH/RxW/RxCp  rm l1 height_sharded Gx1, shard [P/G, Cp]
+      %flat = ttnn.reshape(%pu) [1,1,P,Cp]                        -> same shards (a view)
+      %t    = ttnn.to_layout(%flat)                               -> tile l1 height_sharded, [P/G/32, Cp/32] tiles
+              (emitted as to_tensor_spec; TTNNDecomposeLayouts makes it one in-place tilize)
+      %y    = ttnn.linear(%t, %Wt CpxCout tile dram (conv2d weight dtype), %b 1x1x1xCout tile dram)
+              {matmul_program_config = 1d<grid, in0_block_w Cp/32, out_subblock 1 x min(2, Cout/32),
+                                          out_block_h 2 (1 if P/G/32 is odd), out_block_w Cout/32,
+                                          per_core_m P/G/32, per_core_n Cout/32, fuse_batch,
+                                          fused_activation = the conv's activation, mcast_in0 false>,
+               compute_config = the conv's}
+              -> 1x1xPxCout tile l1 height_sharded Gx1, [P/G/32, Cout/32] tiles   (what the next op reads)
+      %Wt   = typecast(transpose(reshape(to_device(%W), [Cout,Cp]), 0, 1), dtype)   const-eval hoisted
+
+    Steps: (1) drop the tilize the layout pass put on the input, the kernel reads
+    row-major; (2) pixel_unshuffle result ROW_MAJOR / L1 / HEIGHT_SHARDED over
+    the full worker grid, shard [P/G, Cp]; (3) flatten reshape kept as a view;
+    (4) in-place tilize; (5) weight and bias moved to DRAM, weight reshaped
+    [Cout,Cp,1,1] -> [Cout,Cp], transposed to [Cp,Cout], cast to the conv2d
+    weight dtype; (6) conv2d replaced by ttnn.linear with the conv's compute
+    config and fused activation in an explicit 1-D height-sharded program
+    config (out_block_h = 2), output TILE / L1 / HEIGHT_SHARDED [P/G, Cout].
+
+    Why linear: conv2d's own matmul config uses out_block_h = per_core_M; with
+    large per-core shards (hundreds of KB) its static circular buffers clash
+    with the shards and the program cannot be built. out_block_h = 2 runs the
+    same kernel with small buffers.
+
+    Requirements: P divisible by G, P/G and Cp and Cout multiples of 32;
+    otherwise the stem is left as the optimizer placed it (with a warning).
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+  list<Option> options = [
+    Option<"targetDtype", "target-dtype", "::mlir::tt::ttnn::BFPDtype",
+           /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
+           "Weight data type for the stem linear (the conv2d weight dtype).">,
+  ];
+}
+
 def TTNNPixelUnshuffleL1Opt : Pass<"ttnn-pixel-unshuffle-l1-opt", "::mlir::ModuleOp"> {
   let summary = "Rewrite DRAM pixel_unshuffle outputs to L1+TILE to restore L1 HWM.";
   let description = [{
