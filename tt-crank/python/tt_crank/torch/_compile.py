@@ -24,6 +24,7 @@ Pipeline::
 from __future__ import annotations
 
 import functools
+import math
 import operator
 from collections.abc import Callable
 from enum import StrEnum
@@ -950,6 +951,53 @@ def _(
         attn_mask=attn_bias,
     )
     return (grad_query, grad_key, grad_value, None)
+
+
+_RMS_NORM_FW = _aten._fused_rms_norm.default
+
+
+@_lowering(_RMS_NORM_FW)
+@_skip_prepare(_RMS_NORM_FW)
+def _(mb, input, normalized_shape, weight=None, eps=None):
+    # The composite normalizes one trailing dim; a direct _fused_rms_norm call can bring several, so flatten them.
+    lead = input.shape[: len(input.shape) - len(normalized_shape)]
+    flat = len(normalized_shape) > 1
+    if flat:
+        size = math.prod(normalized_shape)
+        input = mb.reshape(input, lead + [size])
+        weight = None if weight is None else mb.reshape(weight, [size])
+    eps = torch.finfo(torch.float32).eps if eps is None else float(eps)
+    output, rstd = mb.rmsnorm_fw(input, weight, eps)
+    if flat:
+        output = mb.reshape(output, lead + list(normalized_shape))
+        rstd = mb.reshape(rstd, lead + [1] * len(normalized_shape))
+    return output, rstd
+
+
+_RMS_NORM_BW = _aten._fused_rms_norm_backward.default
+
+
+@_lowering(_RMS_NORM_BW)
+@_skip_prepare(_RMS_NORM_BW)
+def _(mb, grad_out, input, normalized_shape, rstd, weight, output_mask):
+    # Same flattening as the forward: a direct _fused_rms_norm call can record several normalized dims.
+    lead = input.shape[: len(input.shape) - len(normalized_shape)]
+    flat = len(normalized_shape) > 1
+    if flat:
+        size = math.prod(normalized_shape)
+        grad_out = mb.reshape(grad_out, lead + [size])
+        input = mb.reshape(input, lead + [size])
+        rstd = mb.reshape(rstd, lead + [1])
+        weight = None if weight is None else mb.reshape(weight, [size])
+    grad_input, grad_weight = mb.rmsnorm_bw(grad_out, input, rstd, weight)
+    if flat:
+        grad_input = mb.reshape(grad_input, lead + list(normalized_shape))
+        if grad_weight is not None:
+            grad_weight = mb.reshape(grad_weight, list(normalized_shape))
+    return (
+        grad_input if output_mask[0] else None,
+        grad_weight if output_mask[1] else None,
+    )
 
 
 # aten's cross_entropy is `_log_softmax` + `nll_loss_forward`, its backward `nll_loss_backward` +
