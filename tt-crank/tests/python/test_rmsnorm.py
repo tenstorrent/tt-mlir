@@ -378,6 +378,7 @@ _COMPILE_OUTSIDE_TTML_CASES = {
     "fp32": (torch.float32, (64,), torch.float32),
     "fp32-two-dims": (torch.float32, (32, 64), torch.float32),
     "bf16-two-dims": (_DT, (32, 64), _DT),
+    "bf16-fp32-weight": (_DT, (64,), torch.float32),
 }
 
 

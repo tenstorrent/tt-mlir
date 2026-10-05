@@ -1942,8 +1942,8 @@ std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Va
     const mlir::Type rms_type = stats_in_f32 ? mb.attrs().getF32Type() : element_type;
     mlir::Value gamma = weight ? weight : build_ones(mb, {input_shape.back()}, element_type);
     auto &attrs = mb.attrs();
-    // ttml runs bf16 only; a promoted fp32 composite would be cast down to bf16, so emit the math directly.
-    if (!element_type.isBF16()) {
+    // ttml runs bf16 only; a promoted non-bf16 composite would be cast down to bf16, so emit the math directly.
+    if (!element_type.isBF16() || !element_type_of(gamma).isBF16()) {
         auto out = rmsnorm_fw_decomposition(mb, llvm::SmallVector<mlir::Value, 2>{input, gamma}, eps, rms_type);
         return {out[0], build_reciprocal(mb, mb.insert_typecast(out[1], attrs.getF32Type()))};
     }
@@ -1966,7 +1966,7 @@ std::pair<mlir::Value, mlir::Value> build_rmsnorm_bw(ModuleBuilder &mb, mlir::Va
     mlir::Value gamma = weight ? weight : build_ones(mb, {shape_of(input).back()}, element_type);
     mlir::Value rms =
         mb.insert_typecast(build_reciprocal(mb, rstd), stats_in_f32 ? mb.attrs().getF32Type() : element_type);
-    if (!element_type.isBF16()) {
+    if (!element_type.isBF16() || !element_type_of(gamma).isBF16()) {
         auto out = rmsnorm_bw_decomposition(mb, llvm::SmallVector<mlir::Value, 4>{input, gamma, rms, grad_output});
         return {out[0], weight ? out[1] : mlir::Value{}};
     }
