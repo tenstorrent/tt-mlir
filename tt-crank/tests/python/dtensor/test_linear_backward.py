@@ -110,7 +110,6 @@ def test_linear_backward(tt_pg, mesh_2d_shape, parallel: str, mode: str) -> None
     dx = distribute_tensor(x.to("tt"), mesh, x_placement)
     fwd = dmodel
     if mode == "compile":
-        torch._dynamo.reset()
         fwd = torch.compile(dmodel, backend="tt")
     out = fwd(dx)
     F.mse_loss(out.full_tensor(), target.to("tt")).backward()
@@ -148,7 +147,6 @@ def test_matmul_backward_head_parallel(tt_pg, mode: str) -> None:
         for t in (q, k)
     )
     if mode == "compile":
-        torch._dynamo.reset()
         scores = torch.compile(scores, backend="tt")
     out = scores(dq, dk)
     assert out.placements == (Shard(1),), out.placements
