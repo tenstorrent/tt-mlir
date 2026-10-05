@@ -52,6 +52,11 @@ public:
       if (layout.getBufferType() == BufferType::L1)
         continue;
 
+      // channels_last (stem fold) outputs are placed by TTNNStemFoldLinear:
+      // ROW_MAJOR, HEIGHT_SHARDED in L1. Never rewrite them to interleaved.
+      if (pixOp.getChannelsLast())
+        continue;
+
       // Build the L1-interleaved output type for pixel_unshuffle.
       // Use the full Wormhole 8×8 compute grid so each core holds a smaller
       // L1 slice, matching the allocator footprint of the original manual
@@ -67,7 +72,8 @@ public:
       OpBuilder builder(pixOp);
       auto newPixOp = builder.create<ttnn::PixelUnshuffleOp>(
           pixOp.getLoc(), l1Type, pixOp.getInput(),
-          pixOp.getDownscaleFactorAttr(), pixOp.getChannelOrderAttr(), l1MemCfg);
+          pixOp.getDownscaleFactorAttr(), pixOp.getChannelOrderAttr(), l1MemCfg,
+          pixOp.getChannelsLastAttr(), pixOp.getPaddedChannelsAttr());
 
       // Re-point all users (permute, deallocate, etc.) to the new L1 result.
       result.replaceAllUsesWith(newPixOp.getResult());

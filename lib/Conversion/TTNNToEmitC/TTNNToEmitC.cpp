@@ -1299,13 +1299,22 @@ public:
                                             : mlir::tt::ttnn::Layout::RowMajor);
 
     // ::ttnn::pixel_unshuffle(input, downscale_factor, memory_config,
-    //                         output_layout, channel_order)
+    //                         output_layout, channel_order, channels_last,
+    //                         padded_channels)
+    // channels_last output is always ROW_MAJOR (the kernel writes the sharded
+    // NHWC activation directly); the op rejects an explicit TILE request.
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getInput()),
         emitter.emit(static_cast<uint32_t>(srcOp.getDownscaleFactor())),
         emitter.emit(srcOp.getMemoryConfigAttr()),
-        emitter.emit(outputLayoutAttr),
+        srcOp.getChannelsLast()
+            ? emitter.emit(std::nullopt)
+            : emitter.emit(outputLayoutAttr),
         emitter.emit(srcOp.getChannelOrder()),
+        emitter.emit(srcOp.getChannelsLast()),
+        srcOp.getPaddedChannels()
+            ? emitter.emit(static_cast<uint32_t>(*srcOp.getPaddedChannels()))
+            : emitter.emit(std::nullopt),
     };
 
     emitter.replaceOp(*this, args);

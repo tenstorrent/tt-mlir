@@ -2021,10 +2021,12 @@ createOp(FlatbufferObjectCache &cache, PixelUnshuffleOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> out =
       cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
                                   /*local_shape*/ std::nullopt);
-  return ::tt::target::ttnn::CreatePixelUnshuffleOp(*cache.fbb, in,
-                                                    downscaleFactor,
-                                                    channelOrder,
-                                                    memoryConfig, out);
+  bool channelsLast = op.getChannelsLast();
+  uint32_t paddedChannels =
+      op.getPaddedChannels() ? *op.getPaddedChannels() : 0;
+  return ::tt::target::ttnn::CreatePixelUnshuffleOp(
+      *cache.fbb, in, downscaleFactor, channelOrder, memoryConfig, out,
+      channelsLast, paddedChannels);
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::UpdateCacheOp>

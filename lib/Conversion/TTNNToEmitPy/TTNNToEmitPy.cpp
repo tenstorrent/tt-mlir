@@ -925,6 +925,14 @@ public:
         emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
         emitter.emit(srcOp.getChannelOrder(), "channel_order"),
     };
+    if (srcOp.getChannelsLast()) {
+      args.push_back(emitter.emit(true, "channels_last"));
+      if (srcOp.getPaddedChannels()) {
+        args.push_back(emitter.emit(
+            static_cast<int64_t>(*srcOp.getPaddedChannels()),
+            "padded_channels"));
+      }
+    }
 
     emitter.replaceOp(*this, args);
     return success();

@@ -5259,6 +5259,26 @@ void mlir::tt::ttir::MatmulOp::getCanonicalizationPatterns(
   if (inShape[3] != mlir::ShapedType::kDynamic && inShape[3] % r != 0) {
     return emitOpError("W=") << inShape[3] << " not divisible by r=" << r;
   }
+  if (getChannelsLast()) {
+    // NHWC output [N, H/r, W/r, Cp] with Cp = padded_channels (>= C*r^2).
+    int64_t cOut = inShape[1] * static_cast<int64_t>(r) * r;
+    int64_t cp = getPaddedChannels() ? static_cast<int64_t>(*getPaddedChannels())
+                                     : cOut;
+    if (cp < cOut) {
+      return emitOpError("padded_channels=")
+             << cp << " < C*r^2=" << cOut;
+    }
+    if (outShape[0] != inShape[0] || outShape[1] != inShape[2] / r ||
+        outShape[2] != inShape[3] / r || outShape[3] != cp) {
+      return emitOpError("channels_last output must be [N, H/r, W/r, ")
+             << cp << "], got [" << outShape[0] << ", " << outShape[1] << ", "
+             << outShape[2] << ", " << outShape[3] << "]";
+    }
+    return mlir::success();
+  }
+  if (getPaddedChannels()) {
+    return emitOpError("padded_channels requires channels_last = true");
+  }
   // Validate output shape: [N, C*r^2, H/r, W/r].
   if (inShape[0] != mlir::ShapedType::kDynamic &&
       outShape[0] != mlir::ShapedType::kDynamic &&

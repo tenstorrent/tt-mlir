@@ -3156,7 +3156,9 @@ public:
         op.getDownscaleFactorAttr(),
         ttnn::PixelUnshuffleChannelOrderAttr::get(rewriter.getContext(),
                                                   ttnnChannelOrder),
-        /*memory_config=*/ttnn::MemoryConfigAttr{});
+        /*memory_config=*/ttnn::MemoryConfigAttr{},
+        /*channels_last=*/op.getChannelsLastAttr(),
+        /*padded_channels=*/op.getPaddedChannelsAttr());
     return success();
   }
 };

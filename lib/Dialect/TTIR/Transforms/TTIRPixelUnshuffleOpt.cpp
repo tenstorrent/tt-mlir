@@ -208,7 +208,9 @@ struct PixelUnshufflePattern : public mlir::OpRewritePattern<ttir::ReshapeOp> {
         reshape6D.getInput(),
         rewriter.getUI32IntegerAttr(r),
         ttir::PixelUnshuffleChannelOrderAttr::get(rewriter.getContext(),
-                                                  channelOrder));
+                                                  channelOrder),
+        /*channels_last=*/rewriter.getBoolAttr(false),
+        /*padded_channels=*/mlir::IntegerAttr());
 
     rewriter.replaceOp(reshape4D, psOp.getResult());
     return mlir::success();

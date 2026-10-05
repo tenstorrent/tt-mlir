@@ -3540,6 +3540,12 @@ def TTNN_PixelUnshuffleOp : TTNN_Op<"pixel_unshuffle"> {
         ChannelMajor (default): c_out = c_in*r^2 + h_sub*r + w_sub  (channel-major interleaving)
         SpatialMajor:           c_out = h_sub*(r*C) + w_sub*C + c_in (spatial-major interleaving)
 
+      channels_last = true (with padded_channels = Cp) selects the NHWC kernel:
+        result [N, H/r, W/r, Cp] ROW_MAJOR, HEIGHT_SHARDED in L1, written
+        core-locally; each pixel's C*r^2 channels are contiguous and zero-padded
+        to Cp. memory_config must then be a HEIGHT_SHARDED L1 config whose shard
+        is [pixels_per_core, Cp] (set by TTNNStemFoldLinear).
+
       memory_config controls the output tensor placement:
         Absent (default): DRAM interleaved, ROW_MAJOR layout.
         L1 interleaved:   output written to L1 with TILE layout — eliminates the
@@ -3565,7 +3571,9 @@ def TTNN_PixelUnshuffleOp : TTNN_Op<"pixel_unshuffle"> {
     let arguments = (ins AnyRankedTensor:$input,
                          UI32Attr:$downscale_factor,
                          DefaultValuedAttr<TTNN_PixelUnshuffleChannelOrderAttr, "::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ChannelMajor">:$channel_order,
-                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config);
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         DefaultValuedAttr<BoolAttr, "false">:$channels_last,
+                         OptionalAttr<UI32Attr>:$padded_channels);
 
     let results = (outs AnyRankedTensor:$result);
 

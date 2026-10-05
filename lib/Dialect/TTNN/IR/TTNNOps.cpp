@@ -5196,6 +5196,22 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
   if (inShape[3] != mlir::ShapedType::kDynamic && inShape[3] % r != 0) {
     return emitOpError("W=") << inShape[3] << " not divisible by r=" << r;
   }
+  if (getChannelsLast()) {
+    auto outShape = outType.getShape();
+    int64_t cOut = inShape[1] * static_cast<int64_t>(r) * r;
+    int64_t cp = getPaddedChannels() ? static_cast<int64_t>(*getPaddedChannels())
+                                     : cOut;
+    if (cp < cOut) {
+      return emitOpError("padded_channels=") << cp << " < C*r^2=" << cOut;
+    }
+    if (outShape[0] != inShape[0] || outShape[1] != inShape[2] / r ||
+        outShape[2] != inShape[3] / r || outShape[3] != cp) {
+      return emitOpError("channels_last output must be [N, H/r, W/r, ")
+             << cp << "]";
+    }
+  } else if (getPaddedChannels()) {
+    return emitOpError("padded_channels requires channels_last = true");
+  }
   return mlir::success();
 }
 

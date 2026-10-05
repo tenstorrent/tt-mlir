@@ -40,6 +40,22 @@ void run(const ::tt::target::ttnn::PixelUnshuffleOp *op,
           : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
                 ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()));
 
+  // channels_last: the NHWC kernel writes ROW_MAJOR into a HEIGHT_SHARDED L1
+  // output whose shard is [pixels_per_core, padded_channels]; the compiler
+  // (TTNNStemFoldLinear) has put exactly that memory config on the op.
+  if (op->channels_last()) {
+    LOG_ASSERT(memoryConfig.has_value(),
+               "PixelUnshuffleOp(channels_last) requires a memory config");
+    std::optional<uint32_t> paddedChannels =
+        op->padded_channels() ? std::optional<uint32_t>(op->padded_channels())
+                              : std::nullopt;
+    ::ttnn::Tensor output = ::ttnn::pixel_unshuffle(
+        input, downscaleFactor, memoryConfig, /*output_layout=*/std::nullopt,
+        channelOrder, /*channels_last=*/true, paddedChannels);
+    tensorPool.insertTTNNTensorAndValidate(op->out(), output);
+    return;
+  }
+
   // Derive output_layout from the flatbuffer output tensor spec.
   // tile_shape {1,1} is the ROW_MAJOR sentinel; any other valid tile means TILE.
   const ::tt::target::Dim2d *tileShape =
