@@ -58,13 +58,6 @@ _PARALLEL = {
 }
 
 
-def _maybe_compile(mode: str, fn):
-    if mode == "eager":
-        return fn
-    torch._dynamo.reset()
-    return torch.compile(fn, backend="tt")
-
-
 def _assert_grad(got, ref: torch.Tensor, placements) -> None:
     assert got is not None, "no gradient"
     assert got.placements == tuple(placements), got.placements
@@ -115,7 +108,11 @@ def test_linear_backward(tt_pg, mesh_2d_shape, parallel: str, mode: str) -> None
 
     dmodel = distribute_module(model.to("tt"), mesh, partition_fn=partition_fn)
     dx = distribute_tensor(x.to("tt"), mesh, x_placement)
-    out = _maybe_compile(mode, dmodel)(dx)
+    fwd = dmodel
+    if mode == "compile":
+        torch._dynamo.reset()
+        fwd = torch.compile(dmodel, backend="tt")
+    out = fwd(dx)
     F.mse_loss(out.full_tensor(), target.to("tt")).backward()
 
     ref_grads = {n: p.grad for n, p in ref.named_parameters()}
@@ -150,7 +147,10 @@ def test_matmul_backward_head_parallel(tt_pg, mode: str) -> None:
         distribute_tensor(t.to("tt"), mesh, [Shard(1)]).requires_grad_(True)
         for t in (q, k)
     )
-    out = _maybe_compile(mode, scores)(dq, dk)
+    if mode == "compile":
+        torch._dynamo.reset()
+        scores = torch.compile(scores, backend="tt")
+    out = scores(dq, dk)
     assert out.placements == (Shard(1),), out.placements
     F.mse_loss(out.full_tensor(), target.to("tt")).backward()
 
