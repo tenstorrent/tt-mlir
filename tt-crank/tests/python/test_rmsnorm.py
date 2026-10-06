@@ -14,7 +14,7 @@ from torch.utils._python_dispatch import TorchDispatchMode
 
 from tt_crank.torch import _artifacts
 from tt_crank.torch._artifacts import collect_artifacts
-from tt_crank.torch._compile import CompileOption
+from tt_crank.torch._compile import CompileOption, MathFidelity
 from tt_crank.torch.testing import post_aot_fx_hook, strict_no_fallback
 
 _FUSED_GRAD_FN = "FusedRmsNormBackward0"
@@ -406,7 +406,19 @@ def test_rmsnorm_compile_direct_fused_op_outside_ttml(
         )
         return outs[-1].sum()
 
-    _, ops, _ = _compile_run(fn, opt_level, tt_x, tt_w, backward=True)
+    # OPT_LEVEL 1 leaves compute config to TTNN arch defaults; pin fp32 math to check accuracy.
+    # HiFi3, not HiFi4: HiFi4 with fp32 accumulation is inaccurate on Wormhole.
+    _, ops, _ = _compile_run(
+        fn,
+        opt_level,
+        tt_x,
+        tt_w,
+        backward=True,
+        options={
+            CompileOption.MATH_FIDELITY: MathFidelity.HiFi3,
+            CompileOption.FP32_DEST_ACC_EN: True,
+        },
+    )
     out = outs[-1].detach()
 
     assert "aten._fused_rms_norm.default" in ops, sorted(ops)
@@ -429,7 +441,9 @@ def artifacts_tmp(tmp_path, monkeypatch):
     monkeypatch.setattr(_artifacts, "_artifacts_root", lambda: tmp_path)
 
 
-def _compile_run(fn, opt_level: int, *args, backward: bool):
+def _compile_run(
+    fn, opt_level: int, *args, backward: bool, options: dict | None = None
+):
     """Compile and run fn; return (result, post-aot op names, captured TTIR of every graph)."""
     ops: set[str] = set()
 
@@ -437,7 +451,10 @@ def _compile_run(fn, opt_level: int, *args, backward: bool):
         ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
 
     compiled = torch.compile(
-        fn, backend="tt", fullgraph=True, options={CompileOption.OPT_LEVEL: opt_level}
+        fn,
+        backend="tt",
+        fullgraph=True,
+        options={CompileOption.OPT_LEVEL: opt_level, **(options or {})},
     )
     with post_aot_fx_hook(record), collect_artifacts("rmsnorm") as collection:
         result = compiled(*args)

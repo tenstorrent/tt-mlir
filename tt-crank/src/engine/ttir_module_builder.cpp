@@ -1930,7 +1930,7 @@ llvm::SmallVector<mlir::Value, 2> rmsnorm_bw_decomposition(ModuleBuilder &mb, ml
     mlir::Value x_hat_mean = scale_tensor(mb, x_hat, 1.0 / as<double>(input_shape.back()));
     mlir::Value grad_input = build_mul(mb, build_sub(mb, grad_x_hat, build_mul(mb, x_hat_mean, sum_val)), rstd);
     mlir::Value grad_gamma = build_sum_to(mb, build_mul(mb, grad_output, x_hat), shape_of(gamma));
-    return {mb.insert_typecast(grad_input, element_type), mb.insert_typecast(grad_gamma, element_type)};
+    return {mb.insert_typecast(grad_input, element_type), mb.insert_typecast(grad_gamma, element_type_of(args[1]))};
 }
 
 } // namespace
