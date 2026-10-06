@@ -8,7 +8,7 @@
 from __future__ import annotations
 
 import torch
-from torch.distributed.tensor import Replicate, Shard
+from torch.distributed.tensor import Partial, Replicate, Shard
 from torch.distributed.tensor.experimental import register_sharding
 
 
@@ -196,6 +196,106 @@ def _index_copy_sharding(self, dim, index, source):
     return shardings
 
 
+def _linear_backward_sharding(self, grad_output, weight, output_mask):
+    """`linear_backward` on tt: DP, column-TP (weight Shard(0)) and row-TP (weight Shard(1)), no redistribution."""
+    # torch's meta returns grad_weight and grad_bias together when either is requested; the eager tt
+    # kernel returns only what is masked on. A spec on a None result is ignored, a missing one raises.
+    wanted = (
+        output_mask[0],
+        output_mask[1] or output_mask[2],
+        output_mask[1] or output_mask[2],
+    )
+
+    def outputs(*placements):
+        return [
+            placement if want else None for placement, want in zip(placements, wanted)
+        ]
+
+    last = self.ndim - 1
+    shardings = [
+        (
+            outputs(Replicate(), Replicate(), Replicate()),
+            [Replicate(), Replicate(), Replicate(), None],
+        )
+    ]
+    for d in range(last):
+        shardings.append(
+            (
+                outputs(Shard(d), Partial(), Partial()),
+                [Shard(d), Shard(d), Replicate(), None],
+            )
+        )
+    shardings.append(
+        (
+            outputs(Partial(), Shard(0), Shard(0)),
+            [Replicate(), Shard(last), Shard(0), None],
+        )
+    )
+    shardings.append(
+        (
+            outputs(Shard(last), Shard(1), Replicate()),
+            [Shard(last), Replicate(), Shard(1), None],
+        )
+    )
+    return shardings
+
+
+def _matmul_backward_sharding(grad, self, other, output_mask):
+    """`matmul_backward` on tt: one family per batch dim of `grad`, the matrix dims never shard.
+
+    Batch dims align from the right (matmul broadcasting), so a batch dim of `grad` sits at a
+    different index on `self` and `other`, or is missing / size 1 on one of them. An operand
+    without the dim stays Replicate and its gradient comes back Partial: the kernel sums it over
+    the broadcast dim per shard, DTensor sums the shards.
+
+        grad [B, H, S, E]  self [B, H, S, D]  other [H, D, E]     grad [B, S, E]  self [B, S, D]  other [D, E]
+        Shard(1)           Shard(1)           Shard(0)            Shard(0)        Shard(0)        Replicate
+          -> grad_self Shard(1), grad_other Shard(0)                -> grad_self Shard(0), grad_other Partial
+
+    A 1-D operand has no batch dims and shifts grad's rank; those shapes get the replicate family only.
+    """
+    wanted = (output_mask[0], output_mask[1])
+
+    def outputs(*placements):
+        return [
+            placement if want else None for placement, want in zip(placements, wanted)
+        ]
+
+    shardings = [
+        (
+            outputs(Replicate(), Replicate()),
+            [Replicate(), Replicate(), Replicate(), None],
+        )
+    ]
+    if self.ndim < 2 or other.ndim < 2:
+        return shardings
+
+    def operand_dim(t, d):
+        """`t`'s dim for grad's batch dim `d`, or None when `t` is broadcast there."""
+        td = d - (grad.ndim - t.ndim)
+        return td if td >= 0 and t.shape[td] != 1 else None
+
+    for d in range(grad.ndim - 2):
+        sd, od = operand_dim(self, d), operand_dim(other, d)
+        if sd is None and od is None:
+            continue
+        shardings.append(
+            (
+                outputs(
+                    Partial() if sd is None else Shard(sd),
+                    Partial() if od is None else Shard(od),
+                ),
+                [
+                    Shard(d),
+                    Replicate() if sd is None else Shard(sd),
+                    Replicate() if od is None else Shard(od),
+                    None,
+                ],
+            )
+        )
+    return shardings
+
+
 def register_sharding_strategies() -> None:
     """Register the tt-specific DTensor sharding strategies on the propagator."""
     aten = torch.ops.aten
@@ -207,3 +307,5 @@ def register_sharding_strategies() -> None:
     )(_sdpa_overrideable_backward_sharding)
     register_sharding(aten.index_copy_.default)(_index_copy_sharding)
     register_sharding(aten.index_copy.default)(_index_copy_sharding)
+    register_sharding(aten.linear_backward.default)(_linear_backward_sharding)
+    register_sharding(aten.matmul_backward.default)(_matmul_backward_sharding)
