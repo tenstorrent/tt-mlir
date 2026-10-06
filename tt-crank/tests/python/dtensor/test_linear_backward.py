@@ -29,9 +29,6 @@ from torch.distributed.tensor import (
 
 pytestmark = pytest.mark.multichip
 
-_DT = torch.bfloat16
-MODE = pytest.mark.parametrize("mode", ["eager", "compile"])
-
 # parallel mode -> (mesh dim names, x placement, fc1 column-parallel / fc2 row-parallel param placements)
 _PARALLEL = {
     "dp": (("dp",), [Shard(0)], {}),
@@ -69,7 +66,7 @@ def _assert_grad(got, ref: torch.Tensor, placements) -> None:
     )
 
 
-@MODE
+@pytest.mark.parametrize("mode", ["eager", "compile"])
 @pytest.mark.parametrize("parallel", list(_PARALLEL), ids=list(_PARALLEL))
 def test_linear_backward(tt_pg, mesh_2d_shape, parallel: str, mode: str) -> None:
     """Two-layer MLP forward + MSE loss + backward with the parameters placed per `parallel`:
@@ -90,9 +87,9 @@ def test_linear_backward(tt_pg, mesh_2d_shape, parallel: str, mode: str) -> None
 
     model = nn.Sequential(
         OrderedDict(fc1=nn.Linear(feat, hidden), fc2=nn.Linear(hidden, classes))
-    ).to(_DT)
-    x = torch.randn(batch, feat, dtype=_DT)
-    target = torch.randn(batch, classes, dtype=_DT)
+    ).to(torch.bfloat16)
+    x = torch.randn(batch, feat, dtype=torch.bfloat16)
+    target = torch.randn(batch, classes, dtype=torch.bfloat16)
 
     ref = copy.deepcopy(model).float()
     F.mse_loss(ref(x.float()), target.float()).backward()
@@ -123,7 +120,7 @@ def test_linear_backward(tt_pg, mesh_2d_shape, parallel: str, mode: str) -> None
         _assert_grad(p.grad, ref_grads[name], expected)
 
 
-@MODE
+@pytest.mark.parametrize("mode", ["eager", "compile"])
 def test_matmul_backward_head_parallel(tt_pg, mode: str) -> None:
     """Attention scores `q @ k^T` with the head dim (a batch dim of the matmul) sharded: both
     gradients keep the head shard, no collective. Batch 1 because the forward is torch's `matmul`
@@ -132,9 +129,9 @@ def test_matmul_backward_head_parallel(tt_pg, mode: str) -> None:
     n = torch.tt.num_chips()
     mesh = torch.tt.init_device_mesh((n,), mesh_dim_names=("tp",))
     batch, heads, seq, dim = 1, 2 * n, 32, 64
-    q = torch.randn(batch, heads, seq, dim, dtype=_DT)
-    k = torch.randn(batch, heads, seq, dim, dtype=_DT)
-    target = torch.randn(batch, heads, seq, seq, dtype=_DT)
+    q = torch.randn(batch, heads, seq, dim, dtype=torch.bfloat16)
+    k = torch.randn(batch, heads, seq, dim, dtype=torch.bfloat16)
+    target = torch.randn(batch, heads, seq, seq, dtype=torch.bfloat16)
 
     def scores(a, b):
         return torch.matmul(a, b.transpose(-1, -2))
