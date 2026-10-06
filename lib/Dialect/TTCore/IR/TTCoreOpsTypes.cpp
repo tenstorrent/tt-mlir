@@ -1960,42 +1960,50 @@ TileType::getTiledShape(SmallVector<int64_t> scalarShape) const {
   return scalarShape;
 }
 
-uint64_t TileType::getSizeBytes() const {
-  switch (getDataType()) {
+uint64_t getTileSizeBytes(DataType dataType,
+                          llvm::ArrayRef<int64_t> tileShape) {
+  assert(tileShape.size() == 2 && "tile shape must be 2-D");
+  const uint64_t height = tileShape[0];
+  const uint64_t width = tileShape[1];
+  switch (dataType) {
   case DataType::Float32:
-    return getHeight() * getWidth() * 4;
+    return height * width * 4;
   case DataType::Float16:
-    return getHeight() * getWidth() * 2;
+    return height * width * 2;
   case DataType::BFloat16:
-    return getHeight() * getWidth() * 2;
+    return height * width * 2;
   case DataType::BFP_Float8:
-    assert(getHeight() == 32 && getWidth() == 32);
+    assert(height == 32 && width == 32);
     // 1024 + 64 (1 byte of shared exponent for every 16 elements)
     return 1088;
   case DataType::BFP_BFloat8:
-    assert(getHeight() == 32 && getWidth() == 32);
+    assert(height == 32 && width == 32);
     return 1088;
   case DataType::BFP_Float4:
-    assert(getHeight() == 32 && getWidth() == 32);
+    assert(height == 32 && width == 32);
     return 576;
   case DataType::BFP_BFloat4:
-    assert(getHeight() == 32 && getWidth() == 32);
+    assert(height == 32 && width == 32);
     return 576;
   case DataType::BFP_Float2:
-    assert(getHeight() == 32 && getWidth() == 32);
+    assert(height == 32 && width == 32);
     return 320;
   case DataType::BFP_BFloat2:
-    assert(getHeight() == 32 && getWidth() == 32);
+    assert(height == 32 && width == 32);
     return 320;
   case DataType::UInt32:
   case DataType::Int32:
-    return getHeight() * getWidth() * 4;
+    return height * width * 4;
   case DataType::UInt16:
-    return getHeight() * getWidth() * 2;
+    return height * width * 2;
   case DataType::UInt8:
   case DataType::Bool:
-    return getHeight() * getWidth();
+    return height * width;
   }
+}
+
+uint64_t TileType::getSizeBytes() const {
+  return getTileSizeBytes(getDataType(), getShape());
 }
 
 mlir::Type TileType::getElementType() const {

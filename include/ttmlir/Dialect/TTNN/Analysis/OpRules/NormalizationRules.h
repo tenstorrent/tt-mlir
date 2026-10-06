@@ -58,6 +58,16 @@ struct RmsNormRuleBook : OpRuleBook {
                           bool requiresReshard) const override;
 };
 
+/// TTML softmax backward: operands must be tiled. The kernel accepts BF16 and
+/// F32 and derives the result spec from softmax_output.
+struct TTMLSoftmaxBackwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
 /// TTML RMS norm forward: The backend requires all operands to be tiled and
 /// DRAM-interleaved. It derives the output and optional RMS layouts from the
 /// input.
@@ -75,6 +85,28 @@ struct TTMLRMSNormForwardRuleBook : OpRuleBook {
 /// from gamma; DRAM-interleaved gamma keeps that reduction on the interleaved
 /// path. The backend derives both output layouts from the inputs.
 struct TTMLRMSNormBackwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// TTML layer norm forward:
+/// All operands must be tiled and DRAM-interleaved. The backend derives the
+/// output and optional statistics layouts from the input.
+struct TTMLLayerNormForwardRuleBook : OpRuleBook {
+  LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  bool shouldExploreReshards() const override;
+  OutputHints
+  getOutputHints(Operation *op,
+                 const std::vector<OpConfig> &legalConfigs) const override;
+};
+
+/// TTML layer norm backward:
+/// All operands must be tiled and DRAM-interleaved. The backend derives the
+/// output layouts from the input.
+struct TTMLLayerNormBackwardRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints

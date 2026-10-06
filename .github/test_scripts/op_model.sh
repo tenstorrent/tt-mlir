@@ -17,6 +17,8 @@ echo "Running op-model tripwire tests"
 $BUILD_DIR/test/unittests/OpModel/TTNN/Lib/TestOpModelLibTripwires
 echo "Running allocator-backed stateful L1 spill tests"
 $BUILD_DIR/test/unittests/Optimizer/L1SpillManagementMockAllocatorTests
+echo "Running optimizer strategy tests"
+$BUILD_DIR/test/unittests/Optimizer/OpModelStrategyTests
 
 echo
 echo "Run Optimizer Models Perf Tests"

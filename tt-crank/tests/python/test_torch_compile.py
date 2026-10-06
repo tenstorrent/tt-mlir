@@ -1950,14 +1950,15 @@ def test_compile_options() -> None:
         assert _compile_options(options).optimization_level == expected
 
     # Unset options stay None so the compiler keeps its own defaults; only
-    # optimization_level (0) and experimental_enable_permute_matmul_fusion (True)
-    # carry an explicit default.
+    # optimization_level (0), experimental_enable_permute_matmul_fusion (True),
+    # and math_approx_mode (False, tt-metal's default) carry an explicit default.
     defaults = _compile_options(None)
     assert defaults.optimization_level == 0
     assert defaults.experimental_weight_dtype is None
     assert defaults.experimental_kv_cache_dtype is None
     assert defaults.math_fidelity is None
     assert defaults.fp32_dest_acc_en is None
+    assert defaults.math_approx_mode is False
     assert defaults.experimental_enable_permute_matmul_fusion is True
     assert defaults.enable_const_eval is None
 
@@ -1969,6 +1970,7 @@ def test_compile_options() -> None:
             CompileOption.EXPERIMENTAL_KV_CACHE_DTYPE: BfpDtype.BfpBf4,
             CompileOption.MATH_FIDELITY: MathFidelity.HiFi3,
             CompileOption.FP32_DEST_ACC_EN: False,
+            CompileOption.MATH_APPROX_MODE: True,
             CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN: True,
             CompileOption.EXPERIMENTAL_ENABLE_PERMUTE_MATMUL_FUSION: False,
             CompileOption.ENABLE_TRACE: True,
@@ -1986,6 +1988,7 @@ def test_compile_options() -> None:
     assert c.experimental_kv_cache_dtype == BfpDtype.BfpBf4
     assert c.math_fidelity == MathFidelity.HiFi3
     assert c.fp32_dest_acc_en is False
+    assert c.math_approx_mode is True
     assert c.experimental_enable_fusing_conv2d_with_multiply_pattern is True
     assert c.experimental_enable_permute_matmul_fusion is False
     assert c.enable_trace is True

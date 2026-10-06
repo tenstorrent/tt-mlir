@@ -1294,6 +1294,7 @@ class CompileOption(StrEnum):
     EXPERIMENTAL_KV_CACHE_DTYPE = "experimental_kv_cache_dtype"  # BfpDtype
     MATH_FIDELITY = "math_fidelity"  # MathFidelity
     FP32_DEST_ACC_EN = "fp32_dest_acc_en"  # bool
+    MATH_APPROX_MODE = "math_approx_mode"  # bool
     EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN = (
         "experimental_enable_fusing_conv2d_with_multiply_pattern"  # bool
     )
@@ -1378,6 +1379,9 @@ def _compile_options(
 
     if CompileOption.FP32_DEST_ACC_EN in options:
         opts.fp32_dest_acc_en = options[CompileOption.FP32_DEST_ACC_EN]
+
+    if CompileOption.MATH_APPROX_MODE in options:
+        opts.math_approx_mode = options[CompileOption.MATH_APPROX_MODE]
 
     if CompileOption.EXPERIMENTAL_ENABLE_FUSING_CONV2D_WITH_MULTIPLY_PATTERN in options:
         opts.experimental_enable_fusing_conv2d_with_multiply_pattern = options[

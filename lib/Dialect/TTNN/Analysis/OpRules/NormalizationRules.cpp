@@ -104,6 +104,24 @@ LayoutScore RmsNormRuleBook::adjustScore(
 }
 
 //===----------------------------------------------------------------------===//
+// TTMLSoftmaxBackwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn TTMLSoftmaxBackwardRuleBook::getInputLayoutFilter(
+    unsigned /*operandIdx*/) const {
+  return layout_filter_utils::requireTiled;
+}
+
+bool TTMLSoftmaxBackwardRuleBook::shouldExploreReshards() const {
+  return false;
+}
+
+OutputHints TTMLSoftmaxBackwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
 // TTMLRMSNormForwardRuleBook
 //===----------------------------------------------------------------------===//
 
@@ -139,6 +157,48 @@ bool TTMLRMSNormBackwardRuleBook::shouldExploreReshards() const {
 }
 
 OutputHints TTMLRMSNormBackwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
+// TTMLLayerNormForwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn TTMLLayerNormForwardRuleBook::getInputLayoutFilter(
+    unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
+}
+
+bool TTMLLayerNormForwardRuleBook::shouldExploreReshards() const {
+  return false;
+}
+
+OutputHints TTMLLayerNormForwardRuleBook::getOutputHints(
+    Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
+  return layout_filter_utils::nullHintOnly();
+}
+
+//===----------------------------------------------------------------------===//
+// TTMLLayerNormBackwardRuleBook
+//===----------------------------------------------------------------------===//
+
+LayoutFilterFn TTMLLayerNormBackwardRuleBook::getInputLayoutFilter(
+    unsigned /*operandIdx*/) const {
+  return [](TTNNLayoutAttr layout) {
+    return layout_filter_utils::requireTiled(layout) &&
+           layout_filter_utils::requireDRAMInterleaved(layout);
+  };
+}
+
+bool TTMLLayerNormBackwardRuleBook::shouldExploreReshards() const {
+  return false;
+}
+
+OutputHints TTMLLayerNormBackwardRuleBook::getOutputHints(
     Operation * /*op*/, const std::vector<OpConfig> & /*legalConfigs*/) const {
   return layout_filter_utils::nullHintOnly();
 }

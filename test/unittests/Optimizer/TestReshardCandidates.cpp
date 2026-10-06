@@ -88,7 +88,7 @@ public:
   TTNNLayoutAttr
   createL1ShardedLayout(const llvm::ArrayRef<int64_t> &tensorShape,
                         TensorMemoryLayout memLayout,
-                        const llvm::ArrayRef<int64_t> &gridShape = {8, 4}) {
+                        const llvm::ArrayRef<int64_t> &gridShape = {8, 1}) {
     return createTiledLayout(tensorShape, BufferType::L1, memLayout, gridShape);
   }
 
@@ -118,9 +118,9 @@ public:
             {TensorMemoryLayout::HeightSharded, {2, 1}},
             {TensorMemoryLayout::HeightSharded, {4, 1}},
             {TensorMemoryLayout::HeightSharded, {8, 1}},
-            {TensorMemoryLayout::HeightSharded, {8, 2}},
-            {TensorMemoryLayout::HeightSharded, {8, 4}},
-            {TensorMemoryLayout::HeightSharded, {8, 8}},
+            {TensorMemoryLayout::HeightSharded, {16, 1}},
+            {TensorMemoryLayout::HeightSharded, {32, 1}},
+            {TensorMemoryLayout::HeightSharded, {64, 1}},
             {TensorMemoryLayout::BlockSharded, {2, 2}},
             {TensorMemoryLayout::BlockSharded, {4, 4}},
             {TensorMemoryLayout::BlockSharded, {8, 4}},
@@ -203,7 +203,8 @@ TEST_F(ReshardCandidatesTest, WithTensorLayoutsMapDoesNotCrash) {
 }
 
 TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
-  // Without a TensorTypeLayoutsMap, no reshard candidates should be generated.
+  // Without a TensorTypeLayoutsMap, no sharded reshard candidates should be
+  // generated; the L1-interleaved fallbacks are the only reshards left.
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
   auto layout = createDRAMInterleavedLayout(shape);
   auto tensorType =
@@ -229,13 +230,15 @@ TEST_F(ReshardCandidatesTest, NullTensorLayoutsNoReshardCandidates) {
                                       /*beamWidth=*/8);
   propagation.run();
 
-  // With null tensor layouts map, no reshard ops should have been inserted.
-  // Check beam state: no candidate should have reshard entries.
   const auto &beamState = propagation.getBeamState();
   for (const auto &[op, candidates] : beamState) {
     for (const auto &candidate : candidates) {
-      EXPECT_TRUE(candidate.reshardLayouts.empty())
-          << "No reshards should be generated without tensor layouts map";
+      for (const auto &[operandIdx, layout] : candidate.reshardLayouts) {
+        auto memLayout = layout.getMemLayout();
+        EXPECT_FALSE(memLayout && isShardedMemoryLayout(memLayout.getValue()))
+            << "No sharded reshards should be generated without tensor "
+               "layouts map";
+      }
     }
   }
 }
