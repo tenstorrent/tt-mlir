@@ -417,8 +417,9 @@ def test_rmsnorm_compile_direct_fused_op_outside_ttml(case: str, mode: str) -> N
     )
     out = outs[-1].detach()
 
-    assert "aten._fused_rms_norm.default" in ops, sorted(ops)
-    assert "aten._fused_rms_norm_backward.default" in ops, sorted(ops)
+    # Calls ttml cannot take decompose during tracing
+    assert "aten._fused_rms_norm.default" not in ops, sorted(ops)
+    assert "aten._fused_rms_norm_backward.default" not in ops, sorted(ops)
     _check(tt_x.grad, ref_x.grad, "grad_input")
     _check(tt_w.grad, ref_w.grad, "grad_weight")
     if x_dtype == torch.float32:
@@ -544,5 +545,5 @@ def test_rmsnorm_compile_inference_outside_ttml(case: str, mode: str) -> None:
         w.to("tt"),
     )
 
-    assert "aten._fused_rms_norm.default" in ops, sorted(ops)
+    assert "aten._fused_rms_norm.default" not in ops, sorted(ops)
     _check(out, ref, "output")
