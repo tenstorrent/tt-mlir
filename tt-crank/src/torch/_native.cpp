@@ -600,6 +600,11 @@ public:
                                  attn_mask.value_or(mlir::Value{}));
     }
 
+    mlir::Value rms_norm(mlir::Value input, std::optional<mlir::Value> weight, double epsilon) {
+        assert_builder();
+        return tk::build_rms_norm(*mb_, input, weight.value_or(mlir::Value{}), epsilon);
+    }
+
     // stats_in_f32=false keeps rms in the input dtype, the only form ttml promotes.
     std::pair<mlir::Value, mlir::Value> rmsnorm_fw(mlir::Value input, std::optional<mlir::Value> weight,
                                                    double epsilon) {
@@ -978,6 +983,7 @@ NB_MODULE(_native, m) {
              "scale"_a = nb::none(), "attn_mask"_a = nb::none())
         .def("sdpa_bw", &PyModuleBuilder::sdpa_bw, "grad_output"_a, "attn_output"_a, "query"_a, "key"_a, "value"_a,
              "logsumexp"_a, "is_causal"_a = false, "scale"_a = nb::none(), "attn_mask"_a = nb::none())
+        .def("rms_norm", &PyModuleBuilder::rms_norm, "input"_a, "weight"_a, "epsilon"_a)
         .def("rmsnorm_fw", &PyModuleBuilder::rmsnorm_fw, "input"_a, "weight"_a, "epsilon"_a)
         .def("rmsnorm_bw", &PyModuleBuilder::rmsnorm_bw, "grad_output"_a, "input"_a, "rstd"_a, "weight"_a)
         .def("adamw", &PyModuleBuilder::adamw, "param"_a, "grad"_a, "exp_avg"_a, "exp_avg_sq"_a, "max_exp_avg_sq"_a,

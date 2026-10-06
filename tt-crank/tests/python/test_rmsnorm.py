@@ -15,6 +15,7 @@ from tt_crank.torch._compile import CompileOption, MathFidelity
 from tt_crank.torch.testing import (
     OPT1_COMPILE,
     OPT_MODES,
+    post_aot_fx_hook,
     run_backward,
     strict_no_fallback,
 )
@@ -481,11 +482,67 @@ def test_rmsnorm_compile_rstd_precision(case: str, mode: str) -> None:
     def fn(a, b):
         return torch.ops.aten._fused_rms_norm(a, [shape[-1]], b, eps)
 
+    # rstd is only lowered in a training graph; an inference graph takes ttir.rms_norm instead.
     compiled = torch.compile(fn, backend="tt", fullgraph=True, options=OPT_MODES[mode])
-    _, rstd = compiled(x.to("tt"), _leaf(w, False, "tt"))
+    _, rstd = compiled(_leaf(x, True, "tt"), _leaf(w, True, "tt"))
+    rstd = rstd.detach()
 
     assert rstd.dtype == torch.float32, f"rstd dtype {rstd.dtype}"
     assert rstd.shape == ref_rstd.shape, f"rstd shape {tuple(rstd.shape)}"
     rel_err = ((rstd.cpu() - ref_rstd).abs() / ref_rstd.abs()).max().item()
     rtol = _RSTD_RTOL_COMPILE[mode]
     assert rel_err <= rtol, f"rstd max relative error {rel_err:.3e} > {rtol:.3e}"
+
+
+def _compile_inference(mode: str, fn, *tt_args):
+    """Compile and run fn under no_grad; return (output, post-aot op names)."""
+    ops: set[str] = set()
+
+    def record(gm):
+        ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
+
+    compiled = torch.compile(fn, backend="tt", fullgraph=True, options=OPT_MODES[mode])
+    with post_aot_fx_hook(record), torch.no_grad():
+        out = compiled(*tt_args)
+    return out, ops
+
+
+@pytest.mark.parametrize("mode", _COMPILE_MODES)
+@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
+def test_rmsnorm_compile_inference(case: str, mode: str) -> None:
+    shape, _, _, eps = _FUSED_CASES[case]
+    x, w = _fused_inputs(case)
+    ref = F.rms_norm(x, (shape[-1],), w, eps)
+
+    out, ops = _compile_inference(
+        mode,
+        lambda a, b: F.rms_norm(a, (shape[-1],), b, eps),
+        x.to("tt"),
+        _leaf(w, False, "tt"),
+    )
+
+    assert "aten._fused_rms_norm.default" in ops, sorted(ops)
+    _check(out, ref, "output")
+
+
+@pytest.mark.parametrize("mode", _COMPILE_MODES)
+@pytest.mark.parametrize(
+    "case", list(_COMPILE_OUTSIDE_TTML_CASES), ids=list(_COMPILE_OUTSIDE_TTML_CASES)
+)
+def test_rmsnorm_compile_inference_outside_ttml(case: str, mode: str) -> None:
+    x_dtype, normalized_shape, w_dtype = _COMPILE_OUTSIDE_TTML_CASES[case]
+    x = torch.randn(2, 32, 64, dtype=x_dtype)
+    w = torch.randn(*normalized_shape, dtype=w_dtype)
+    ref, _ = torch.ops.aten._fused_rms_norm(x, list(normalized_shape), w, 1e-6)
+
+    out, ops = _compile_inference(
+        mode,
+        lambda a, b: torch.ops.aten._fused_rms_norm(a, list(normalized_shape), b, 1e-6)[
+            0
+        ],
+        x.to("tt"),
+        w.to("tt"),
+    )
+
+    assert "aten._fused_rms_norm.default" in ops, sorted(ops)
+    _check(out, ref, "output")

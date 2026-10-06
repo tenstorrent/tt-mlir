@@ -967,10 +967,14 @@ def _(mb, input, normalized_shape, weight=None, eps=None):
         input = mb.reshape(input, lead + [size])
         weight = None if weight is None else mb.reshape(weight, [size])
     eps = torch.finfo(torch.float32).eps if eps is None else float(eps)
-    output, rstd = mb.rmsnorm_fw(input, weight, eps)
+    if _compiling_training_graph():
+        output, rstd = mb.rmsnorm_fw(input, weight, eps)
+    else:
+        output, rstd = mb.rms_norm(input, weight, eps), None
     if flat:
         output = mb.reshape(output, lead + list(normalized_shape))
-        rstd = mb.reshape(rstd, lead + [1] * len(normalized_shape))
+        if rstd is not None:
+            rstd = mb.reshape(rstd, lead + [1] * len(normalized_shape))
     return output, rstd
 
 

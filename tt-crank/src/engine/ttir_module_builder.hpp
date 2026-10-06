@@ -619,6 +619,9 @@ build_sdpa_bw(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value attn_outpu
               mlir::Value value, mlir::Value logsumexp, bool is_causal, std::optional<double> scale,
               mlir::Value attn_mask);
 
+// ttir.rms_norm over the last dim (lowers to ttnn.rms_norm); no rstd. Weight is cast to the input dtype.
+TT_CRANK_API mlir::Value build_rms_norm(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, double eps);
+
 // ttml `rmsnorm_fw` composite. Returns `(output, rstd)`, rstd fp32 keepdim. ttml promotes only
 // `stats_in_f32 = false`.
 TT_CRANK_API std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Value input,

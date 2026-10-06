@@ -1935,6 +1935,20 @@ llvm::SmallVector<mlir::Value, 2> rmsnorm_bw_decomposition(ModuleBuilder &mb, ml
 
 } // namespace
 
+mlir::Value build_rms_norm(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, double eps) {
+    const auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    const mlir::Type element_type = input_type.getElementType();
+    // ttnn.rms_norm takes one dtype; torch keeps the output in the input dtype.
+    if (weight) {
+        weight = mb.insert_typecast(weight, element_type);
+    }
+    auto shape_attr = mb.attrs().getDenseI64ArrayAttr({input_type.getShape().back()});
+    return mb
+        .create<mlir::tt::ttir::RMSNormOp>(input_type, input, weight, /*bias=*/mlir::Value{}, shape_attr,
+                                           mb.attrs().getF32FloatAttr(as<float>(eps)))
+        .getResult();
+}
+
 std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Value input, mlir::Value weight,
                                                      double eps, bool stats_in_f32) {
     auto input_shape = shape_of(input);
