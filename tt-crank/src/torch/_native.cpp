@@ -769,6 +769,14 @@ NB_MODULE(_native, m) {
         "tensor"_a, "cluster_axis"_a);
 
     m.def(
+        "write_result_into",
+        [](nb::handle py_out, nb::handle py_result) {
+            at::Tensor out = unpack_torch_tensor(py_out);
+            tk::write_result_into(out, unpack_torch_tensor(py_result));
+        },
+        "out"_a, "result"_a);
+
+    m.def(
         "reduce_scatter_into",
         [](nb::handle py_output, nb::handle py_input, std::uint32_t cluster_axis, std::int64_t scatter_dim) {
             tk::reduce_scatter_into(unpack_torch_tensor(py_output), unpack_torch_tensor(py_input), cluster_axis,
@@ -853,7 +861,8 @@ NB_MODULE(_native, m) {
                 &::tt::crank::CompileOptions::experimental_enable_dram_space_saving_optimization)
         .def_rw("enable_create_d2m_subgraphs", &::tt::crank::CompileOptions::enable_create_d2m_subgraphs)
         .def_rw("ttnn_perf_metrics_enabled", &::tt::crank::CompileOptions::ttnn_perf_metrics_enabled)
-        .def_rw("ttnn_perf_metrics_output_file", &::tt::crank::CompileOptions::ttnn_perf_metrics_output_file);
+        .def_rw("ttnn_perf_metrics_output_file", &::tt::crank::CompileOptions::ttnn_perf_metrics_output_file)
+        .def_rw("enable_zero_copy_input_mutations", &::tt::crank::CompileOptions::enable_zero_copy_input_mutations);
 
     nb::class_<PyModuleBuilder>(m, "ModuleBuilder")
         .def(nb::init<std::vector<tk::TensorTypeSpec>, const std::vector<mlir::tt::ttcore::ArgumentType> &>(),

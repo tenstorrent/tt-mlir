@@ -126,6 +126,10 @@ def _skip_prepare(*targets):
     return decorator
 
 
+def _aot_fw_metadata():
+    return getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
+
+
 def _compiling_training_graph() -> bool:
     """True while lowering the forward of a graph AOT built a backward for.
 
@@ -136,8 +140,19 @@ def _compiling_training_graph() -> bool:
     reads False exactly when training. No metadata (a graph compiled outside AOT)
     counts as inference, the same fallback `_fw_args_roles` takes.
     """
-    fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
-    return bool(getattr(fw_meta, "is_train", False))
+    return bool(getattr(_aot_fw_metadata(), "is_train", False))
+
+
+def _aot_graph_kind() -> str | None:
+    """`forward` / `backward` / `inference` for the graph aot has us compiling, taken
+    from its `<aot id>_<kind>` tag.
+    """
+    tag = getattr(torch._guards.TracingContext.try_get(), "aot_graph_name", None) or ()
+    return "_".join(tag).rpartition("_")[2] or None
+
+
+def _compiling_backward_graph() -> bool:
+    return _aot_graph_kind() == "backward"
 
 
 @_lowering(_aten.add.Tensor)
@@ -1313,6 +1328,7 @@ class CompileOption(StrEnum):
     ENABLE_CREATE_D2M_SUBGRAPHS = "enable_create_d2m_subgraphs"  # bool
     TTNN_PERF_METRICS_ENABLED = "ttnn_perf_metrics_enabled"  # bool
     TTNN_PERF_METRICS_OUTPUT_FILE = "ttnn_perf_metrics_output_file"  # str
+    ENABLE_ZERO_COPY_INPUT_MUTATIONS = "enable_zero_copy_input_mutations"  # bool
 
 
 COMPILE_OPTIONS = [opt for opt in CompileOption]
@@ -1427,6 +1443,11 @@ def _compile_options(
             CompileOption.TTNN_PERF_METRICS_OUTPUT_FILE
         ]
 
+    if CompileOption.ENABLE_ZERO_COPY_INPUT_MUTATIONS in options:
+        opts.enable_zero_copy_input_mutations = options[
+            CompileOption.ENABLE_ZERO_COPY_INPUT_MUTATIONS
+        ]
+
     return opts
 
 
@@ -1514,12 +1535,21 @@ class _TTIRInterpreter(torch.fx.Interpreter):
 _post_aot_fx_hook: Callable[[torch.fx.GraphModule], None] | None = None
 
 
-def _aot_graph_kind() -> str | None:
-    """`forward` / `backward` / `inference` for the graph aot has us compiling, taken
-    from its `<aot id>_<kind>` tag.
+def _input_mutation_pairs() -> list[tuple[int, int]]:
+    """`(graph input index, graph output index)` for each input aot_autograd writes
+    back after the graph runs.
     """
-    tag = getattr(torch._guards.TracingContext.try_get(), "aot_graph_name", None) or ()
-    return "_".join(tag).rpartition("_")[2] or None
+    fw_meta = _aot_fw_metadata()
+    if fw_meta is None or _compiling_backward_graph():
+        return []
+    num_tokens = len(fw_meta.tokens)
+    pairs = []
+    for i, idx in enumerate(fw_meta.mutated_inp_runtime_indices):
+        if not fw_meta.input_info[idx].mutates_data:
+            continue
+        inp_pos, out_pos = num_tokens + idx, num_tokens + i
+        pairs.append((inp_pos, out_pos))
+    return pairs
 
 
 def _lower_and_compile(
@@ -1587,9 +1617,22 @@ def _lower_and_compile(
             Artifact(_compile_options_dict(options), result, _aot_graph_kind())
         )
 
+    mutation_pairs = (
+        _input_mutation_pairs() if options.enable_zero_copy_input_mutations else []
+    )
+
     def runner(*inputs: torch.Tensor) -> list:
-        produced = iter(_native.run_program(program, list(inputs), output_dtypes))
-        return [None if is_none else next(produced) for is_none in none_mask]
+        produced = _native.run_program(program, list(inputs), output_dtypes)
+        # AOTAutograd writes mutated inputs back with an `input.copy_(output)`
+        # epilogue, which on tt is a device -> host -> device round trip. Swap
+        # each mutated input's storage for the output's device buffer, so that
+        # copy_ sees the same buffer on both sides and returns early.
+        # The epilogue can't be turned off: AOTAutograd always uses it for
+        # metadata-only mutations and mutations of inputs that require grad.
+        for inp, out in mutation_pairs:
+            _native.write_result_into(inputs[inp], produced[out])
+        it = iter(produced)
+        return [None if is_none else next(it) for is_none in none_mask]
 
     return runner
 
@@ -1682,7 +1725,7 @@ def tt_backend(
     def fw_compiler(
         fw_gm: torch.fx.GraphModule, fw_inputs: list[torch.Tensor]
     ) -> Callable:
-        fw_meta = getattr(torch._guards.TracingContext.try_get(), "fw_metadata", None)
+        fw_meta = _aot_fw_metadata()
         roles = _fw_args_roles(len(fw_inputs), fw_meta)
         return lower_and_compile(fw_gm, fw_inputs, roles)
 
