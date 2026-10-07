@@ -956,42 +956,15 @@ _RMS_NORM_FW = _aten._fused_rms_norm.default
 _RMS_NORM_BW = _aten._fused_rms_norm_backward.default
 
 
-def _ttml_rmsnorm_supported(input, normalized_shape, weight) -> bool:
-    """Mirrors `ttml_rmsnorm_supported` in ops/rmsnorm.cpp: bf16 input and weight, one normalized dim."""
-    if input.dtype != torch.bfloat16 or list(normalized_shape) != list(
-        input.shape[-1:]
-    ):
-        return False
-    return weight is None or (
-        weight.dtype == torch.bfloat16 and list(weight.shape) == list(normalized_shape)
-    )
-
-
-# Like sdpa's MATH route: a call ttml cannot take decomposes during tracing, so only
-# ttml-shaped calls stay leaves and reach the lowerings below.
-_TORCH_RMS_NORM_DECOMPS = get_decompositions([_RMS_NORM_FW, _RMS_NORM_BW])
-
-
-def _rms_norm_fw_decomp(input, normalized_shape, weight=None, eps=None):
-    if _ttml_rmsnorm_supported(input, normalized_shape, weight):
-        return NotImplemented
-    return _TORCH_RMS_NORM_DECOMPS[_RMS_NORM_FW](input, normalized_shape, weight, eps)
-
-
-def _rms_norm_bw_decomp(grad_out, input, normalized_shape, rstd, weight, output_mask):
-    if (
-        _ttml_rmsnorm_supported(input, normalized_shape, weight)
-        and grad_out.dtype == input.dtype
-    ):
-        return NotImplemented
-    return _TORCH_RMS_NORM_DECOMPS[_RMS_NORM_BW](
-        grad_out, input, normalized_shape, rstd, weight, output_mask
-    )
-
-
 @_lowering(_RMS_NORM_FW)
 @_skip_prepare(_RMS_NORM_FW)
 def _(mb, input, normalized_shape, weight=None, eps=None):
+    # Only ttml-shaped calls reach here: tt's rms_norm (ops/rmsnorm.cpp) decomposes the rest before tracing.
+    # A direct _fused_rms_norm call bypasses that; a non-bf16 one fails in build_rmsnorm_fw when training.
+    if len(normalized_shape) != 1:
+        raise NotImplementedError(
+            "tt-crank compile: _fused_rms_norm over more than one normalized dim; use F.rms_norm"
+        )
     eps = torch.finfo(torch.float32).eps if eps is None else float(eps)
     if _compiling_training_graph():
         return mb.rmsnorm_fw(input, weight, eps)
@@ -1718,11 +1691,7 @@ def _build_decomposition_table():
         }
     )
     # Never decompose an op tt lowers directly — keep it as a leaf for its kernel.
-    table = {op: fn for op, fn in table.items() if op not in _LOWERINGS}
-    # Except the calls the ttml rmsnorm kernels cannot take; these return NotImplemented otherwise.
-    table[_RMS_NORM_FW] = _rms_norm_fw_decomp
-    table[_RMS_NORM_BW] = _rms_norm_bw_decomp
-    return table
+    return {op: fn for op, fn in table.items() if op not in _LOWERINGS}
 
 
 _TT_DECOMPOSITIONS = _build_decomposition_table()

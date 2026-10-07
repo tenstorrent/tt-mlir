@@ -385,7 +385,7 @@ _COMPILE_OUTSIDE_TTML_CASES = {
 @pytest.mark.parametrize(
     "case", list(_COMPILE_OUTSIDE_TTML_CASES), ids=list(_COMPILE_OUTSIDE_TTML_CASES)
 )
-def test_rmsnorm_compile_direct_fused_op_outside_ttml(case: str, mode: str) -> None:
+def test_rmsnorm_compile_outside_ttml(case: str, mode: str) -> None:
     x_dtype, normalized_shape, w_dtype = _COMPILE_OUTSIDE_TTML_CASES[case]
     x = torch.randn(2, 32, 64, dtype=x_dtype)
     w = torch.randn(*normalized_shape, dtype=w_dtype)
@@ -398,9 +398,7 @@ def test_rmsnorm_compile_direct_fused_op_outside_ttml(case: str, mode: str) -> N
     outs: list[torch.Tensor] = []
 
     def fn(a, b):
-        outs.append(
-            torch.ops.aten._fused_rms_norm(a, list(normalized_shape), b, 1e-6)[0]
-        )
+        outs.append(F.rms_norm(a, normalized_shape, b, 1e-6))
         return outs[-1].sum()
 
     # OPT_LEVEL 1 leaves compute config to TTNN arch defaults; pin fp32 math to check accuracy.
@@ -534,16 +532,39 @@ def test_rmsnorm_compile_inference_outside_ttml(case: str, mode: str) -> None:
     x_dtype, normalized_shape, w_dtype = _COMPILE_OUTSIDE_TTML_CASES[case]
     x = torch.randn(2, 32, 64, dtype=x_dtype)
     w = torch.randn(*normalized_shape, dtype=w_dtype)
-    ref, _ = torch.ops.aten._fused_rms_norm(x, list(normalized_shape), w, 1e-6)
+    ref = F.rms_norm(x, normalized_shape, w, 1e-6)
 
     out, ops = _compile_inference(
         mode,
-        lambda a, b: torch.ops.aten._fused_rms_norm(a, list(normalized_shape), b, 1e-6)[
-            0
-        ],
+        lambda a, b: F.rms_norm(a, normalized_shape, b, 1e-6),
         x.to("tt"),
         w.to("tt"),
     )
 
     assert "aten._fused_rms_norm.default" not in ops, sorted(ops)
     _check(out, ref, "output")
+
+
+# normalized_shape, dtype, expected error
+_DIRECT_UNSUPPORTED_CASES = {
+    "fp32": ((64,), torch.float32, "ttml takes bf16"),
+    "two-dims": ((32, 64), _DT, "more than one normalized dim"),
+}
+
+
+@pytest.mark.parametrize(
+    "case", list(_DIRECT_UNSUPPORTED_CASES), ids=list(_DIRECT_UNSUPPORTED_CASES)
+)
+def test_rmsnorm_compile_direct_fused_op_unsupported_raises(case: str) -> None:
+    normalized_shape, dtype, match = _DIRECT_UNSUPPORTED_CASES[case]
+    x = torch.randn(2, 32, 64, dtype=dtype).to("tt").requires_grad_()
+    w = torch.randn(*normalized_shape, dtype=dtype).to("tt").requires_grad_()
+    with pytest.raises(Exception, match=match):
+        run_backward(
+            "compile-opt0",
+            lambda a, b: torch.ops.aten._fused_rms_norm(
+                a, list(normalized_shape), b, 1e-6
+            )[0].sum(),
+            x,
+            w,
+        )
