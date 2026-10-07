@@ -103,7 +103,7 @@ std::string CompileOptions::to_string() const {
     return ss.str();
 }
 
-void CompileOptions::set_options_on(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &opts) const {
+void CompileOptions::set_pipeline_options(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &opts) const {
     if (optimization_level.has_value()) {
         opts.optimizationLevel = *optimization_level;
     }

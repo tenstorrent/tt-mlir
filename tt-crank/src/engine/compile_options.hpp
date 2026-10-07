@@ -12,14 +12,15 @@
 #include "tt_crank_export.hpp"
 
 // Forward-declared so this header stays free of the heavy tt-mlir TTNN pipeline
-// header; set_compile_options only takes a reference to it.
+// header; set_pipeline_options only takes a reference to it.
 namespace mlir::tt::ttnn {
 struct TTIRToTTNNRuntimePipelineOptions;
 } // namespace mlir::tt::ttnn
 
 namespace tt::crank {
 
-// Options for TTIR-starting pipelines.
+// Options for TTIR-starting pipelines. Most map to tt-mlir pipeline
+// options; some (e.g. enable_zero_copy_input_mutations) are crank-only.
 // Default values are only set for options that we want to override by default.
 // For other values, we will take default mlir values.
 struct TT_CRANK_API CompileOptions {
@@ -89,9 +90,9 @@ struct TT_CRANK_API CompileOptions {
 
     std::string to_string() const;
 
-    // Translates crank CompileOptions into the tt-mlir TTIR->TTNN runtime pipeline
-    // options (enum conversions + the has_value()-gated overrides).
-    void set_options_on(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &opts) const;
+    // Translates the pipeline subset of CompileOptions into the tt-mlir TTIR->TTNN
+    // runtime pipeline options (enum conversions + the has_value()-gated overrides).
+    void set_pipeline_options(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &opts) const;
 };
 
 } // namespace tt::crank
