@@ -517,22 +517,15 @@ void MatmulRuleBook::applyOpSpecificAttrs(
 
   auto programConfig = matmulAttrs.matmulProgramConfig.value();
 
-  // DS: program/compute config only. The operand reshards come from the input
-  // candidates getExtraInputReshardCandidates injects.
-  bool isDRAMSharded =
-      mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
-          programConfig);
-  if (isDRAMSharded) {
-    auto setDSConfig = [&](auto concreteOp) {
-      concreteOp.setMatmulProgramConfigAttr(programConfig);
-      if (matmulAttrs.computeKernelConfig.has_value()) {
-        concreteOp.setComputeConfigAttr(*matmulAttrs.computeKernelConfig);
-      }
-    };
+  // DS: the program config only. The operand reshards come from the input
+  // candidates getExtraInputReshardCandidates injects, and the compute config
+  // is left to tt-metal.
+  if (mlir::isa<MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr>(
+          programConfig)) {
     if (matmulOp) {
-      setDSConfig(matmulOp);
+      matmulOp.setMatmulProgramConfigAttr(programConfig);
     } else {
-      setDSConfig(linearOp);
+      linearOp.setMatmulProgramConfigAttr(programConfig);
     }
     return;
   }
