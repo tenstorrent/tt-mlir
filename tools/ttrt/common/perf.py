@@ -14,6 +14,11 @@ import csv
 import ast
 
 from ttrt.common.util import *
+from ttrt.common.profile_regions import (
+    PROFILE_REGIONS_COLUMN,
+    annotate_row_with_profile_regions,
+    extract_device_op_global_call_count,
+)
 
 
 class Perf:
@@ -586,19 +591,11 @@ class Perf:
 
                                     # Process the collected block. Find it's global call count and add it to the loc
                                     for bline in block:
-                                        parts = bline.split(",")
-                                        # Strip and split part[3] on semicolon or space, and grab the number
-                                        num_part = parts[3].strip()
-                                        digits = ""
-                                        for c in num_part:
-                                            if c.isdigit():
-                                                digits += c
-                                            else:
-                                                break
                                         global_call_count = (
-                                            int(digits) if digits else None
+                                            extract_device_op_global_call_count(bline)
                                         )
-                                        call_count_mapping[global_call_count] = data
+                                        if global_call_count is not None:
+                                            call_count_mapping[global_call_count] = data
 
                         return call_count_mapping
 
@@ -627,6 +624,7 @@ class Perf:
                         reader = csv.DictReader(infile)
                         fieldnames = reader.fieldnames + [
                             "LOC",
+                            PROFILE_REGIONS_COLUMN,
                             "CONST_EVAL_OP",
                             "INPUT_LAYOUT_CONVERSION_OP",
                             "PROGRAM_METADATA",
@@ -646,6 +644,8 @@ class Perf:
                                 ]
                             else:
                                 row["LOC"] = "loc(unknown)"
+
+                            annotate_row_with_profile_regions(row)
 
                             # Append the const_eval_op column with its const_eval_op data
                             if (
