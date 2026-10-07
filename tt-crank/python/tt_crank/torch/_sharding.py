@@ -11,6 +11,8 @@ import torch
 from torch.distributed.tensor import Partial, Replicate, Shard
 from torch.distributed.tensor.experimental import register_sharding
 
+from .custom_ops import cross_entropy
+
 
 def _sdpa_overrideable_sharding(
     query,
@@ -196,6 +198,28 @@ def _index_copy_sharding(self, dim, index, source):
     return shardings
 
 
+def _cross_entropy_fw_sharding(logits, target):
+    """`tt_crank::cross_entropy_fw(logits [rows x C], target [rows]) -> [rows]`.
+
+    Rows are independent, so Shard(0) logits and targets give Shard(0) per-row losses. The class
+    dim is never sharded: the kernel's softmax would need the row max and sum exchanged across
+    chips. DTensor redistributes anything else onto one of these two combos.
+    """
+    return [
+        ([Replicate()], [Replicate(), Replicate()]),
+        ([Shard(0)], [Shard(0), Shard(0)]),
+    ]
+
+
+def _cross_entropy_bw_sharding(grad, logits, target):
+    """`tt_crank::cross_entropy_bw(grad [rows], logits [rows x C], target [rows]) -> [rows x C]`: the
+    forward's row split, with the per-row grads split alongside."""
+    return [
+        ([Replicate()], [Replicate(), Replicate(), Replicate()]),
+        ([Shard(0)], [Shard(0), Shard(0), Shard(0)]),
+    ]
+
+
 def _linear_backward_sharding(self, grad_output, weight, output_mask):
     """`linear_backward` on tt: DP, column-TP (weight Shard(0)) and row-TP (weight Shard(1)), no redistribution."""
     # torch's meta returns grad_weight and grad_bias together when either is requested; the eager tt
@@ -307,5 +331,7 @@ def register_sharding_strategies() -> None:
     )(_sdpa_overrideable_backward_sharding)
     register_sharding(aten.index_copy_.default)(_index_copy_sharding)
     register_sharding(aten.index_copy.default)(_index_copy_sharding)
+    register_sharding(cross_entropy.cross_entropy_fw)(_cross_entropy_fw_sharding)
+    register_sharding(cross_entropy.cross_entropy_bw)(_cross_entropy_bw_sharding)
     register_sharding(aten.linear_backward.default)(_linear_backward_sharding)
     register_sharding(aten.matmul_backward.default)(_matmul_backward_sharding)

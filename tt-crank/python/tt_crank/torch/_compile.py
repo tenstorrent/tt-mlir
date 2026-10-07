@@ -36,6 +36,7 @@ from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from . import _native
 from ._artifacts import Artifact, is_artifacts_dumper_active, register_artifact
+from .custom_ops.cross_entropy import cross_entropy_bw, cross_entropy_fw
 
 _aten = torch.ops.aten
 _funcol = torch.ops._c10d_functional
@@ -1032,6 +1033,19 @@ def _(
     )
     grad = mb.broadcast(mb.neg(grad), list(log_probs.shape))
     return mb.where(picked, grad, mb.zeros_like(log_probs, list(log_probs.shape)))
+
+
+# The ttml cross entropy pair (custom_ops.cross_entropy); the aten lowerings above take what the kernels do not.
+@_lowering(cross_entropy_fw)
+@_skip_prepare(cross_entropy_fw)
+def _(mb, logits, target):
+    return mb.cross_entropy_fw(logits, target)
+
+
+@_lowering(cross_entropy_bw)
+@_skip_prepare(cross_entropy_bw)
+def _(mb, grad, logits, target):
+    return mb.cross_entropy_bw(grad, logits, target)
 
 
 @_lowering(_aten._to_copy.default)
