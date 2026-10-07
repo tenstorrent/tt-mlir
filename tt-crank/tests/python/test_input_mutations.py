@@ -8,7 +8,6 @@ from tt_crank.torch._compile import CompileOption
 
 
 def _run_tt(fn, inputs, zero_copy):
-    torch._dynamo.reset()
     tt_inputs = [t.clone().to("tt") for t in inputs]
     options = {CompileOption.ENABLE_ZERO_COPY_INPUT_MUTATIONS: zero_copy}
     out = torch.compile(fn, backend="tt", options=options)(*tt_inputs)
