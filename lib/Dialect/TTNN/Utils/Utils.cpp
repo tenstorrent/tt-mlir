@@ -7,6 +7,7 @@
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Utils.h"
@@ -62,6 +63,16 @@ bool isDRAMShardedMatmulEnabled(Operation *op) {
   }
 
   return false;
+}
+
+bool isCCLOp(Operation *op) {
+  return mlir::isa<AllGatherOp, AllReduceOp, AllReduceAsyncOp, ReduceScatterOp,
+                   PointToPointOp, AllToAllDispatchOp, AllToAllCombineOp,
+                   AllToAllDispatchMetadataOp>(op);
+}
+
+bool isViewLikeOp(Operation *op) {
+  return mlir::isa<ReshapeOp, SliceStaticOp, ToMemoryConfigOp>(op);
 }
 
 uint64_t getReservedL1Usage(Operation *op) {
