@@ -7,6 +7,60 @@ module attributes {} {
     return %1 : tensor<32xbf16>
   }
 
+  func.func @slice_1d_empty_result_case_01(%arg0: tensor<64xbf16>) -> tensor<0xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [3: i32], ends = [1: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<0xbf16>
+    return %1 : tensor<0xbf16>
+  }
+
+  func.func @slice_1d_empty_result_case_02(%arg0: tensor<64xbf16>) -> tensor<0xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [-92: i32], ends = [-90: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<0xbf16>
+    return %1 : tensor<0xbf16>
+  }
+
+  func.func @slice_1d_empty_result_case_03(%arg0: tensor<64xbf16>) -> tensor<0xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [-90: i32], ends = [-92: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<0xbf16>
+    return %1 : tensor<0xbf16>
+  }
+
+  func.func @slice_1d_empty_result_case_04(%arg0: tensor<64xbf16>) -> tensor<0xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [66: i32], ends = [68: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<0xbf16>
+    return %1 : tensor<0xbf16>
+  }
+
+  func.func @slice_1d_empty_result_case_05(%arg0: tensor<64xbf16>) -> tensor<0xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [68: i32], ends = [66: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<0xbf16>
+    return %1 : tensor<0xbf16>
+  }
+
+  func.func @slice_1d_empty_result_case_06(%arg0: tensor<64xbf16>) -> tensor<0xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [64: i32], ends = [64: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<0xbf16>
+    return %1 : tensor<0xbf16>
+  }
+
+  func.func @slice_1d_out_of_bounds_indexing_case_01(%arg0: tensor<64xbf16>) -> tensor<32xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [32: i32], ends = [100: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<32xbf16>
+    return %1 : tensor<32xbf16>
+  }
+
+  func.func @slice_1d_out_of_bounds_indexing_case_02(%arg0: tensor<64xbf16>) -> tensor<64xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [-124: i32], ends = [124: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<64xbf16>
+    return %1 : tensor<64xbf16>
+  }
+
+  func.func @slice_1d_out_of_bounds_indexing_case_03(%arg0: tensor<64xbf16>) -> tensor<32xbf16> {
+    // CHECK: = "ttir.slice_static"
+    %1 = "ttir.slice_static"(%arg0) <{begins = [-200: i32], ends = [32: i32], step = [1: i32]}> : (tensor<64xbf16>) -> tensor<32xbf16>
+    return %1 : tensor<32xbf16>
+  }
+
   func.func @slice_1d_step(%arg0: tensor<64xbf16>) -> tensor<16xbf16> {
     // CHECK: = "ttir.slice_static"
     %1 = "ttir.slice_static"(%arg0) <{begins = [0: i32], ends = [64: i32], step = [4: i32]}> : (tensor<64xbf16>) -> tensor<16xbf16>

@@ -60,36 +60,6 @@ module attributes {} {
   }
 }
 
-// Verify that the parsing fails if the begin value exceeds negative limit
-// -----
-module attributes {} {
-  func.func @slice_negative_invalid_begin_negative(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
-    // CHECK: error: 'ttir.slice_static' op Invalid begin index for dimension 2. Expected value in range [-128, 128), got -129. Input shape: (10, 3, 128, 64)
-    %1 = "ttir.slice_static"(%arg0) <{begins = [0: i32, 0: i32, -129: i32, 32: i32], ends = [10: i32, 3: i32, 128: i32, 64: i32], step = [3: i32, 3: i32, 8: i32, 4: i32]}> : (tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16>
-    return %1 : tensor<4x1x16x8xbf16>
-  }
-}
-
-// Verify that the parsing fails if the end value exceeds positive limit
-// -----
-module attributes {} {
-  func.func @slice_negative_invalid_end_positive(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
-    // CHECK: error: 'ttir.slice_static' op Invalid end index for dimension 3. Expected value in range [-64, 64], got 65. Input shape: (10, 3, 128, 64)
-    %1 = "ttir.slice_static"(%arg0) <{begins = [0: i32, 0: i32, 0: i32, 32: i32], ends = [10: i32, 3: i32, 128: i32, 65: i32], step = [3: i32, 3: i32, 8: i32, 4: i32]}> : (tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16>
-    return %1 : tensor<4x1x16x8xbf16>
-  }
-}
-
-// Verify that the parsing fails if the end value exceeds negative limit
-// -----
-module attributes {} {
-  func.func @slice_negative_invalid_end_negative(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
-    // CHECK: error: 'ttir.slice_static' op Invalid end index for dimension 3. Expected value in range [-64, 64], got -65. Input shape: (10, 3, 128, 64)
-    %1 = "ttir.slice_static"(%arg0) <{begins = [0: i32, 0: i32, 0: i32, 32: i32], ends = [10: i32, 3: i32, 128: i32, -65: i32], step = [3: i32, 3: i32, 8: i32, 4: i32]}> : (tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16>
-    return %1 : tensor<4x1x16x8xbf16>
-  }
-}
-
 // Verify that the parsing fails if the step value is equal to zero
 // -----
 module attributes {} {
@@ -97,44 +67,6 @@ module attributes {} {
     // CHECK: error: 'ttir.slice_static' op Step value for dimension 3 cannot be zero
     %1 = "ttir.slice_static"(%arg0) <{begins = [0: i32, 0: i32, 0: i32, 32: i32], ends = [10: i32, 3: i32, 128: i32, 64: i32], step = [3: i32, 3: i32, 8: i32, 0: i32]}> : (tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16>
     return %1 : tensor<4x1x16x8xbf16>
-  }
-}
-
-// Verify that the parsing fails if the begin index is greater than end and step is positive
-// -----
-module attributes {} {
-  func.func @slice_negative_begin_greater_than_end_positive_step(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
-    // CHECK: error: 'ttir.slice_static' op For positive step, begin index must be less than or equal to end index for dimension 0. Got begin: 9, end: 0, step: 3, input shape: (10, 3, 128, 64)
-    %1 = "ttir.slice_static"(%arg0) <{begins = [9: i32, 0: i32, 0: i32, 32: i32], ends = [0: i32, 3: i32, 32: i32, 64: i32], step = [3: i32, 3: i32, 8: i32, 4: i32]}> : (tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16>
-    return %1 : tensor<4x1x16x8xbf16>
-  }
-}
-
-// -----
-module attributes {} {
-  func.func @slice_negative_begin_greater_than_end_positive_step(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x8x8xbf16> {
-    // CHECK: error: 'ttir.slice_static' op For positive step, begin index must be less than or equal to end index for dimension 2. Got begin: 96 (-32), end: 32 (-96), step: 8, input shape: (10, 3, 128, 64)
-    %1 = "ttir.slice_static"(%arg0) <{begins = [0: i32, 0: i32, -32: i32, 32: i32], ends = [10: i32, 3: i32, -96: i32, 64: i32], step = [3: i32, 3: i32, 8: i32, 4: i32]}> : (tensor<10x3x128x64xbf16>) -> tensor<4x1x8x8xbf16>
-    return %1 : tensor<4x1x8x8xbf16>
-  }
-}
-
-// Verify that the parsing fails if the end index is greater than begin and step is negative
-// -----
-module attributes {} {
-  func.func @slice_negative_begin_less_than_end_negative_step(%arg0: tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16> {
-    // CHECK: error: 'ttir.slice_static' op For negative step, begin index must be greater than or equal to end index for dimension 1. Got begin: 0 (-3), end: 2 (-1), step: -3, input shape: (10, 3, 128, 64)
-    %1 = "ttir.slice_static"(%arg0) <{begins = [0: i32, -3: i32, 0: i32, 32: i32], ends = [10: i32, -1: i32, 32: i32, 128: i32], step = [3: i32, -3: i32, 8: i32, 8: i32]}> : (tensor<10x3x128x64xbf16>) -> tensor<4x1x16x8xbf16>
-    return %1 : tensor<4x1x16x8xbf16>
-  }
-}
-
-// -----
-module attributes {} {
-  func.func @slice_negative_begin_less_than_end_negative_step(%arg0: tensor<10x3x128x64xbf16>) -> tensor<5x1x16x8xbf16> {
-    // CHECK: error: 'ttir.slice_static' op For negative step, begin index must be greater than or equal to end index for dimension 0. Got begin: 0, end: 10, step: -2, input shape: (10, 3, 128, 64)
-    %1 = "ttir.slice_static"(%arg0) <{begins = [0: i32, 0: i32, 0: i32, 32: i32], ends = [10: i32, 3: i32, 128: i32, 64: i32], step = [-2: i32, 3: i32, 8: i32, 4: i32]}> : (tensor<10x3x128x64xbf16>) -> tensor<5x1x16x8xbf16>
-    return %1 : tensor<5x1x16x8xbf16>
   }
 }
 
