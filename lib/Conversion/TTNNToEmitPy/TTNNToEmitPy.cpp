@@ -5704,6 +5704,26 @@ public:
   }
 };
 
+// SoftmaxBackward conversion pattern. The low-level TTML primitive is not
+// exposed through tt-train's Python bindings.
+class SoftmaxBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::SoftmaxBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::SoftmaxBackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SoftmaxBackwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.softmax_backward is not supported: ttml "
+        "does not expose metal::softmax_backward through Python "
+        "bindings.");
+  }
+};
+
 // RMSNormBackward conversion pattern.
 //
 // EmitPy lowering for ttnn.rmsnorm_bw is intentionally unsupported, for the
@@ -5748,6 +5768,24 @@ public:
         srcOp,
         "EmitPy lowering for ttnn.layernorm_fw is not supported: ttml does not "
         "expose the metal::layernorm_fw primitive through its Python "
+        "bindings.");
+  }
+};
+
+class LayerNormBackwardOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormBackwardOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormBackwardOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormBackwardOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    return rewriter.notifyMatchFailure(
+        srcOp,
+        "EmitPy lowering for ttnn.layernorm_bw is not supported: ttml does not "
+        "expose the metal::layernorm_bw primitive through its Python "
         "bindings.");
   }
 };
@@ -6202,19 +6240,17 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
   patterns.add<PagedFlashMultiLatentAttentionDecodeOpConversionPattern>(
       typeConverter, ctx);
 
-  // AdamW: deliberately declines conversion (see TODO(pglusac) above).
+  // TTML ops: deliberately decline conversion (see issue above).
   patterns.add<AdamWOpConversionPattern>(typeConverter, ctx);
-
-  // SDPAForward: deliberately declines conversion (see comment above).
   patterns.add<SDPAForwardOpConversionPattern>(typeConverter, ctx);
-
-  // SDPABackward: deliberately declines conversion (see comment above).
   patterns.add<SDPABackwardOpConversionPattern>(typeConverter, ctx);
 
   // Normalization forward ops deliberately decline conversion.
   patterns.add<RMSNormForwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<RMSNormBackwardOpConversionPattern>(typeConverter, ctx);
+  patterns.add<SoftmaxBackwardOpConversionPattern>(typeConverter, ctx);
   patterns.add<LayerNormForwardOpConversionPattern>(typeConverter, ctx);
+  patterns.add<LayerNormBackwardOpConversionPattern>(typeConverter, ctx);
 
   // SwigluElemwiseBackward: deliberately declines conversion, same reason.
   patterns.add<SwigluElemwiseBackwardOpConversionPattern>(typeConverter, ctx);

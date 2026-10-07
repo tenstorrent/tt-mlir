@@ -3796,6 +3796,47 @@ public:
 } // namespace
 
 //
+// SoftmaxBackwardOp conversion pattern
+// (emits ::ttml::metal::softmax_backward)
+//
+namespace {
+class SoftmaxBackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::SoftmaxBackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.softmax_backward";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::softmax_backward";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::SoftmaxBackwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::SoftmaxBackwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::SoftmaxBackwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::SoftmaxBackwardOp> emitter(
+        srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getSoftmaxOutput()), emitter.emit(srcOp.getGrad()),
+        emitter.emit(srcOp.getDimension())};
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+    auto call = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(), tensorType, convertOpName(srcOp),
+        rewriter.getArrayAttr(args), /*template_args=*/nullptr,
+        adaptor.getOperands());
+    rewriter.replaceOp(srcOp, call.getResults());
+    return success();
+  }
+};
+} // namespace
+
+//
 // RMSNormBackwardOp conversion pattern (emits ::ttml::metal::rmsnorm_bw)
 //
 namespace {
@@ -3930,6 +3971,69 @@ public:
       results.push_back(valueOp.getResult(0));
     }
 
+    rewriter.replaceOp(srcOp, results);
+    return success();
+  }
+};
+} // namespace
+
+//
+// LayerNormBackwardOp conversion pattern (emits ::ttml::metal::layernorm_bw)
+//
+namespace {
+class LayerNormBackwardOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::LayerNormBackwardOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return "ttnn.layernorm_bw";
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "ttml::metal::layernorm_bw";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::LayerNormBackwardOp>::TTNNToEmitCBaseOpConversionPattern;
+  using Adaptor = mlir::tt::ttnn::LayerNormBackwardOp::Adaptor;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::LayerNormBackwardOp srcOp, Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::LayerNormBackwardOp>
+        emitter(srcOp, adaptor, rewriter);
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()), emitter.emit(srcOp.getGamma()),
+        emitter.emit(srcOp.getMean()), emitter.emit(srcOp.getRstd()),
+        emitter.emit(srcOp.getDLDout())};
+
+    using ReturnTy = std::vector<std::optional<::ttnn::Tensor>>;
+    auto call = rewriter.create<emitc::CallOpaqueOp>(
+        srcOp.getLoc(),
+        rewriter.getType<emitc::OpaqueType>(ttnn_to_emitc::TypeNameV<ReturnTy>),
+        convertOpName(srcOp), rewriter.getArrayAttr(args),
+        /*template_args=*/nullptr, adaptor.getOperands());
+
+    auto optionalType = emitc::OpaqueType::get(
+        rewriter.getContext(), ttnn_to_emitc::TypeNameV<ReturnTy::value_type>);
+    auto optionalLValueType = emitc::LValueType::get(optionalType);
+    auto tensorType = rewriter.getType<emitc::OpaqueType>(
+        ttnn_to_emitc::TypeNameV<::ttnn::Tensor>);
+    llvm::SmallVector<mlir::Value, 3> results;
+    for (unsigned i = 0; i < 3; ++i) {
+      auto index = rewriter.create<emitc::LiteralOp>(
+          srcOp.getLoc(), rewriter.getIndexType(), std::to_string(i));
+      auto subscript = rewriter.create<emitc::SubscriptOp>(
+          srcOp.getLoc(), optionalLValueType, call.getResult(0),
+          index.getResult());
+      auto load = rewriter.create<emitc::LoadOp>(srcOp.getLoc(), optionalType,
+                                                 subscript.getResult());
+      auto value = rewriter.create<emitc::CallOpaqueOp>(
+          srcOp.getLoc(), tensorType,
+          ttnn_to_emitc::kGetOptionalValueFunctionName, /*args=*/nullptr,
+          /*template_args=*/nullptr, load.getResult());
+      results.push_back(value.getResult(0));
+    }
     rewriter.replaceOp(srcOp, results);
     return success();
   }
@@ -6868,7 +6972,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       BatchNormInferenceOpConversionPattern, AdamWOpConversionPattern,
       SDPAForwardOpConversionPattern, SDPABackwardOpConversionPattern,
       RMSNormForwardOpConversionPattern, RMSNormBackwardOpConversionPattern,
-      LayerNormForwardOpConversionPattern,
+      LayerNormForwardOpConversionPattern, LayerNormBackwardOpConversionPattern,
+      SoftmaxBackwardOpConversionPattern,
       CrossEntropyForwardOpConversionPattern,
       CrossEntropyBackwardOpConversionPattern,
       SwigluElemwiseBackwardOpConversionPattern,

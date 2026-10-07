@@ -1296,6 +1296,20 @@ TTNNOperandsWorkaroundsFactory::createSDPABackwardOpOperandsWorkarounds(
   return operandsWorkaround;
 }
 
+// The TTML softmax backward kernel supports BF16 and F32 and inherits the
+// complete output tensor spec from softmax_output. Force TILE layout while
+// preserving dtype, buffer type, and memory layout.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSoftmaxBackwardOpOperandsWorkarounds(
+    Operation * /*op*/) {
+  TTNNOperandWorkarounds tiled;
+  tiled.tensorLayoutWorkaround = Layout::Tile;
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(tiled)
+      .addInputOperandWorkaround(tiled)
+      .addOutputOperandWorkaround(tiled);
+}
+
 // Create workarounds for the ttml rmsnorm_fw op. The backing metal op
 // (ttml::metal::rmsnorm_fw) requires every tensor it touches to be bf16,
 // tiled and interleaved in DRAM.
@@ -1390,6 +1404,29 @@ TTNNOperandsWorkaroundsFactory::createLayerNormForwardOpOperandsWorkarounds(
         operandsWorkaround.addOutputOperandWorkaround(tileDramBf16);
   }
 
+  return operandsWorkaround;
+}
+
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createLayerNormBackwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds tileDramBf16;
+  tileDramBf16.tensorLayoutWorkaround = Layout::Tile;
+  tileDramBf16.tensorBufferTypeWorkaround = BufferType::DRAM;
+  tileDramBf16.tensorMemoryLayoutWorkaround = TensorMemoryLayoutAttr::get(
+      op->getContext(), TensorMemoryLayout::Interleaved);
+  tileDramBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  TTNNOperandsWorkarounds operandsWorkaround =
+      TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds();
+  for (unsigned i = 0; i < 5; ++i) {
+    operandsWorkaround =
+        operandsWorkaround.addInputOperandWorkaround(tileDramBf16);
+  }
+  for (unsigned i = 0; i < 3; ++i) {
+    operandsWorkaround =
+        operandsWorkaround.addOutputOperandWorkaround(tileDramBf16);
+  }
   return operandsWorkaround;
 }
 

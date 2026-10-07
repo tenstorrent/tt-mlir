@@ -47,6 +47,10 @@ struct TT_CRANK_API CompileOptions {
     // fp32 destination accumulation override.
     std::optional<bool> fp32_dest_acc_en;
 
+    // Math approximation mode for ops exposing a compute-kernel config.
+    // Default matches tt-metal ComputeConfigDescriptor (false = precise SFPU).
+    std::optional<bool> math_approx_mode = false;
+
     // Fuse conv2d + multiply in the TTNN fusing pass.
     std::optional<bool> experimental_enable_fusing_conv2d_with_multiply_pattern;
 

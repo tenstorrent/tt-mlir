@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Asserts.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTIR/IR/TTIROps.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/RoPEFusingPattern.h"
 #include "ttmlir/Dialect/TTIR/Transforms/Fusing/SDPAFusingPattern.h"
@@ -3699,7 +3700,10 @@ public:
       patterns.add<fusing::RoPEBackwardFusingPattern>(&getContext());
       patterns.add<fusing::RoPEInterleavedPairFusingPattern>(&getContext());
       patterns.add<fusing::SDPAFusingPattern>(&getContext());
-      patterns.add<fusing::SDPAHeadExpansionFusingPattern>(&getContext());
+      patterns.add<
+          fusing::SDPAHeadExpansionFusingPattern<ScaledDotProductAttentionOp>,
+          fusing::SDPAHeadExpansionFusingPattern<ttcore::CompositeOp>>(
+          &getContext());
       patterns.add<fusing::TopKFusingPattern>(&getContext());
 
       GreedyRewriteConfig config;

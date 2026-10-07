@@ -4,16 +4,16 @@
 
 #include "ttmlir/Dialect/TTNN/Analysis/MatmulProgramConfig.h"
 
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
+#include "mlir/IR/BuiltinTypes.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 namespace mlir::tt::ttnn {
-
-static inline int64_t divUp(int64_t a, int64_t b) { return (a + b - 1) / b; }
 
 // Compute the maximum number of tiles that can fit in the destination register.
 // This depends on the compute kernel config settings:
@@ -108,9 +108,9 @@ generateMatmul1DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
 
   if (mcastIn0) {
     perCoreM = Mt;
-    perCoreN = divUp(Nt, numCores);
+    perCoreN = llvm::divideCeil(Nt, numCores);
   } else {
-    perCoreM = divUp(Mt, numCores);
+    perCoreM = llvm::divideCeil(Mt, numCores);
     perCoreN = Nt;
   }
 
@@ -162,8 +162,8 @@ generateMatmul2DProgramConfig(MLIRContext *ctx, int64_t Mt, int64_t Nt,
                               int64_t maxSubblockSize, bool fuseBatch) {
   auto [gridX, gridY] = utils::getPhysicalGridDimensions(outputLayout);
 
-  int64_t perCoreM = divUp(Mt, gridY);
-  int64_t perCoreN = divUp(Nt, gridX);
+  int64_t perCoreM = llvm::divideCeil(Mt, gridY);
+  int64_t perCoreN = llvm::divideCeil(Nt, gridX);
 
   int64_t in0BlockW = (Kt % 2 == 0) ? 2 : 1;
   int64_t outSubblockH = 1;
@@ -252,9 +252,9 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
   int64_t M = outShape[outShape.size() - 2];
   int64_t N = outShape[outShape.size() - 1];
   int64_t K = aShape[aShape.size() - 1];
-  int64_t Mt = divUp(M, TILE_HEIGHT);
-  int64_t Nt = divUp(N, TILE_WIDTH);
-  int64_t Kt = divUp(K, TILE_WIDTH);
+  int64_t Mt = llvm::divideCeil(M, TILE_HEIGHT);
+  int64_t Nt = llvm::divideCeil(N, TILE_WIDTH);
+  int64_t Kt = llvm::divideCeil(K, TILE_WIDTH);
 
   MLIRContext *ctx = op->getContext();
   UnaryWithParamAttr fusedActivation =
@@ -298,6 +298,119 @@ generateMatmulProgramConfig(Operation *op, TTNNLayoutAttr outputLayout) {
   return generateMatmul1DProgramConfig(ctx, Mt, Nt, Kt, outputLayout,
                                        outputMemLayout, fusedActivation,
                                        maxSubblockSize, fuseBatch);
+}
+
+// ============================================================================
+// DRAM-sharded matmul config generation
+// ============================================================================
+
+// Floor on in0_block_w as a fraction of K-per-core: below it the block loop
+// runs too many rounds and the mcast configs win. Empirical.
+static constexpr int64_t kMinBlockWidthFraction = 2;
+
+std::optional<DRAMShardParams>
+computeShardParams(int64_t M, int64_t K, int64_t N, int64_t numBanks,
+                   int64_t numIn0Cores, int64_t numOutCores,
+                   ttcore::DataType weightDataType, int64_t l1Available) {
+  assert(K % TILE_WIDTH == 0 && N % TILE_WIDTH == 0 &&
+         "K and N must be tile-aligned; isDSEligible enforces this");
+  DRAMShardParams p;
+  p.numBanks = numBanks;
+  p.kTiles = K / TILE_WIDTH;
+  p.nTiles = N / TILE_WIDTH;
+  assert(p.kTiles % numIn0Cores == 0 &&
+         "kTiles must be divisible by numIn0Cores before the per-core divide");
+  int64_t kPerCore = p.kTiles / numIn0Cores;
+  // The last bank holds padding when the tile count does not divide evenly.
+  p.perCoreNCompute = llvm::divideCeil(p.nTiles, numBanks);
+  // A sub-tile M still occupies one tile row.
+  p.perCoreM = llvm::divideCeil(M, TILE_HEIGHT);
+  p.perCoreNStorage = llvm::divideCeil(p.nTiles, numOutCores);
+  p.weightDataType = weightDataType;
+
+  const int64_t bf16Tile = ttcore::getTileSizeBytes(ttcore::DataType::BFloat16);
+  const int64_t fp32Tile = ttcore::getTileSizeBytes(ttcore::DataType::Float32);
+  const int64_t weightTile = ttcore::getTileSizeBytes(weightDataType);
+
+  // Over-reserved on purpose: sized against the in0 core count rather than the
+  // storage split, so a tight shape is declined instead of reaching a state
+  // L1SpillManagement cannot demote (#9264).
+  int64_t outTensorBufPerCore =
+      p.perCoreM * llvm::divideCeil(p.nTiles, numIn0Cores) * bf16Tile;
+  int64_t in0TensorBuf = p.perCoreM * kPerCore * bf16Tile;
+  int64_t cbBudget = l1Available - in0TensorBuf - outTensorBufPerCore;
+
+  // Fixed CBs. interm0 is sized separately in fp32 although tt-metal shares one
+  // bf16 buffer with the output; the same margin as above (#9264).
+  int64_t outCB = p.perCoreM * p.perCoreNCompute * bf16Tile;
+  int64_t interm0CB = p.perCoreM * p.perCoreNCompute * fp32Tile;
+  int64_t fixedCost = outCB + interm0CB;
+
+  if (fixedCost > cbBudget) {
+    return std::nullopt;
+  }
+
+  // Widest divisor of K-per-core whose circular buffers fit the budget.
+  p.in0BlockW = 0;
+  for (int64_t w = kPerCore; w >= 1; --w) {
+    if (kPerCore % w != 0) {
+      continue;
+    }
+    // in0 is double- and in1 triple-buffered once there is more than one block.
+    bool pipelined = p.kTiles / w > 1;
+    int64_t in0CB = w * p.perCoreM * bf16Tile * (pipelined ? 2 : 1);
+    int64_t in1CB = w * p.perCoreNCompute * weightTile * (pipelined ? 3 : 1);
+    if (fixedCost + in0CB + in1CB <= cbBudget) {
+      p.in0BlockW = w;
+      break;
+    }
+  }
+  if (p.in0BlockW == 0) {
+    return std::nullopt;
+  }
+
+  if (p.in0BlockW * kMinBlockWidthFraction < kPerCore) {
+    return std::nullopt;
+  }
+
+  return p;
+}
+
+TTNNLayoutAttr buildWidthShardedLayout(MLIRContext *ctx,
+                                       TTNNLayoutAttr origLayout,
+                                       llvm::ArrayRef<int64_t> tensorShape,
+                                       BufferType bufferType, int64_t numCores,
+                                       ttcore::DeviceAttr deviceAttr) {
+  return TTNNLayoutAttr::Builder(origLayout, tensorShape)
+      .setBufferType(bufferType)
+      .setMemoryLayout(
+          TensorMemoryLayoutAttr::get(ctx, TensorMemoryLayout::WidthSharded))
+      .setGridShape({1, numCores})
+      // Force canonical placement; a matching seed would keep its own.
+      .setCoreRangeSet(nullptr)
+      .buildWithCanonicalCorePlacement(deviceAttr);
+}
+
+MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr
+buildDRAMShardedProgramConfig(MLIRContext *ctx, const DRAMShardParams &p,
+                              UnaryWithParamAttr fusedAct) {
+  return MatmulMultiCoreReuseMultiCastDRAMShardedProgramConfigAttr::get(
+      ctx, p.in0BlockW, p.perCoreM, p.perCoreNStorage, fusedAct);
+}
+
+DeviceComputeKernelConfigAttr
+buildComputeConfig(MLIRContext *ctx, ttcore::DataType weightDataType) {
+  // Observed per weight dtype, not derived from the formats.
+  MathFidelity fidelity = (weightDataType == ttcore::DataType::BFP_BFloat4)
+                              ? MathFidelity::LoFi
+                              : MathFidelity::HiFi2;
+  return DeviceComputeKernelConfigAttr::get(
+      ctx,
+      /*mathFidelity=*/fidelity,
+      /*mathApproxMode=*/mlir::BoolAttr{},
+      /*fp32DestAccEn=*/mlir::BoolAttr::get(ctx, false),
+      /*packerL1Acc=*/mlir::BoolAttr::get(ctx, true),
+      /*dstFullSyncEn=*/mlir::BoolAttr{});
 }
 
 } // namespace mlir::tt::ttnn

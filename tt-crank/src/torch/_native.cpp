@@ -847,6 +847,7 @@ NB_MODULE(_native, m) {
         .def_rw("experimental_kv_cache_dtype", &::tt::crank::CompileOptions::experimental_kv_cache_dtype)
         .def_rw("math_fidelity", &::tt::crank::CompileOptions::math_fidelity)
         .def_rw("fp32_dest_acc_en", &::tt::crank::CompileOptions::fp32_dest_acc_en)
+        .def_rw("math_approx_mode", &::tt::crank::CompileOptions::math_approx_mode)
         .def_rw("experimental_enable_fusing_conv2d_with_multiply_pattern",
                 &::tt::crank::CompileOptions::experimental_enable_fusing_conv2d_with_multiply_pattern)
         .def_rw("experimental_enable_permute_matmul_fusion",

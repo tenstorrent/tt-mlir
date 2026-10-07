@@ -82,7 +82,7 @@ public:
 
   TTNNLayoutAttr
   createL1ShardedLayout(const llvm::ArrayRef<int64_t> &tensorShape,
-                        const llvm::ArrayRef<int64_t> &gridShape = {8, 4}) {
+                        const llvm::ArrayRef<int64_t> &gridShape = {8, 1}) {
     return createTiledLayout(tensorShape, BufferType::L1,
                              TensorMemoryLayout::HeightSharded, gridShape);
   }
@@ -343,7 +343,7 @@ TEST_F(OpModelStrategyTest, ScoreOrderingEquality) {
 TEST_F(OpModelStrategyTest, ScoreCandidateL1ShardedResult) {
   auto addOp = createMockAddOp();
   llvm::SmallVector<int64_t> shape = {1, 1, 32, 32};
-  auto l1ShardedLayout = createL1ShardedLayout(shape, {8, 4});
+  auto l1ShardedLayout = createL1ShardedLayout(shape, {8, 1});
   OpConfig config(l1ShardedLayout);
 
   op_constraint_validation::ValidationResult result;
