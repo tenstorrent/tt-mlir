@@ -1216,7 +1216,10 @@ def adamw_golden(
     if output_type_mlir is not None:
         result = result.to(mlir_type_to_torch_dtype(output_type_mlir))
 
+    new_exp_avg = new_exp_avg.to(exp_avg.dtype)
+    new_exp_avg_sq = new_exp_avg_sq.to(exp_avg_sq.dtype)
     if max_exp_avg_sq is not None:
+        new_max = new_max.to(max_exp_avg_sq.dtype)
         return result, new_exp_avg, new_exp_avg_sq, new_max
     return result, new_exp_avg, new_exp_avg_sq
 
