@@ -1357,6 +1357,67 @@ mlir::tt::ttnn::TypecastOp::canonicalize(TypecastOp typecastOp,
   return foldConsecutiveDataCastOps(typecastOp, rewriter);
 }
 
+// Check if the attribute represents one.
+static bool isOneAttr(mlir::Attribute attr) {
+  if (auto floatAttr = mlir::dyn_cast_if_present<mlir::FloatAttr>(attr)) {
+    return floatAttr.getValue().isExactlyValue(1.0);
+  }
+  if (auto intAttr = mlir::dyn_cast_if_present<mlir::IntegerAttr>(attr)) {
+    return intAttr.getValue().isOne();
+  }
+  return false;
+}
+
+// Check if the value is a tensor whose every element is known to be one, i.e.
+// it is produced by `ttnn.ones` or by `ttnn.full` with a fill value of one.
+static bool isTensorOfOnes(mlir::Value value) {
+  mlir::Operation *definingOp = value.getDefiningOp();
+  if (mlir::isa_and_present<mlir::tt::ttnn::OnesOp>(definingOp)) {
+    return true;
+  }
+  if (auto fullOp =
+          mlir::dyn_cast_if_present<mlir::tt::ttnn::FullOp>(definingOp)) {
+    return isOneAttr(fullOp.getFillValue());
+  }
+  return false;
+}
+
+// pow_tensor(x, ones) -> x, but only when the base type matches the result type
+// exactly, i.e. the base is neither broadcast nor relayouted on the way to the
+// result.
+//
+// Note that most constant exponents never reach this op: TTIRToTTNN lowers
+// `ttir.pow` with a non-negative constant exponent to `ttnn.pow_scalar`, which
+// is canonicalized below. This pattern covers `ttnn.ones`/`ttnn.full`
+// exponents in IR that enters the TTNN dialect directly.
+::llvm::LogicalResult
+mlir::tt::ttnn::PowTensorOp::canonicalize(PowTensorOp op,
+                                          ::mlir::PatternRewriter &rewriter) {
+  if (op.getLhs().getType() != op.getType()) {
+    return mlir::failure();
+  }
+  if (!isTensorOfOnes(op.getRhs())) {
+    return mlir::failure();
+  }
+  rewriter.replaceOp(op, op.getLhs());
+  return mlir::success();
+}
+
+// pow_scalar(x, 1) -> x, but only when the base type matches the result type
+// exactly.
+::llvm::LogicalResult
+mlir::tt::ttnn::PowScalarOp::canonicalize(PowScalarOp op,
+                                          ::mlir::PatternRewriter &rewriter) {
+  if (op.getLhs().getType() != op.getType()) {
+    return mlir::failure();
+  }
+  if (!isOneAttr(op.getRhs())) {
+    return mlir::failure();
+  }
+  rewriter.replaceOp(op, op.getLhs());
+  return mlir::success();
+}
+
 //===----------------------------------------------------------------------===//
 // Common verifier for 2d pooling ops
 //===----------------------------------------------------------------------===//
