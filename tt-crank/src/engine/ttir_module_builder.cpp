@@ -1930,10 +1930,24 @@ llvm::SmallVector<mlir::Value, 2> rmsnorm_bw_decomposition(ModuleBuilder &mb, ml
     mlir::Value x_hat_mean = scale_tensor(mb, x_hat, 1.0 / as<double>(input_shape.back()));
     mlir::Value grad_input = build_mul(mb, build_sub(mb, grad_x_hat, build_mul(mb, x_hat_mean, sum_val)), rstd);
     mlir::Value grad_gamma = build_sum_to(mb, build_mul(mb, grad_output, x_hat), shape_of(gamma));
-    return {mb.insert_typecast(grad_input, element_type), mb.insert_typecast(grad_gamma, element_type)};
+    return {mb.insert_typecast(grad_input, element_type), mb.insert_typecast(grad_gamma, element_type_of(args[1]))};
 }
 
 } // namespace
+
+mlir::Value build_rms_norm(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, double eps) {
+    const auto input_type = mlir::cast<mlir::RankedTensorType>(input.getType());
+    const mlir::Type element_type = input_type.getElementType();
+    // ttnn.rms_norm takes one dtype; torch keeps the output in the input dtype.
+    if (weight) {
+        weight = mb.insert_typecast(weight, element_type);
+    }
+    auto shape_attr = mb.attrs().getDenseI64ArrayAttr({input_type.getShape().back()});
+    return mb
+        .create<mlir::tt::ttir::RMSNormOp>(input_type, input, weight, /*bias=*/mlir::Value{}, shape_attr,
+                                           mb.attrs().getF32FloatAttr(as<float>(eps)))
+        .getResult();
+}
 
 std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Value input, mlir::Value weight,
                                                      double eps, bool stats_in_f32) {
@@ -1941,10 +1955,13 @@ std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Va
     const mlir::Type element_type = element_type_of(input);
     const mlir::Type rms_type = stats_in_f32 ? mb.attrs().getF32Type() : element_type;
     mlir::Value gamma = weight ? weight : build_ones(mb, {input_shape.back()}, element_type);
+    auto &attrs = mb.attrs();
+    TT_FATAL(element_type.isBF16() && element_type_of(gamma).isBF16(),
+             "tt-crank build_rmsnorm_fw: ttml takes bf16 input and weight, got {} and {}", type_name(element_type),
+             type_name(element_type_of(gamma)));
     llvm::SmallVector<int64_t> stat_shape(input_shape);
     stat_shape.back() = 1;
     llvm::SmallVector<mlir::Type, 2> result_types{input.getType(), mlir::RankedTensorType::get(stat_shape, rms_type)};
-    auto &attrs = mb.attrs();
     llvm::SmallVector<mlir::NamedAttribute, 2> attributes{
         attrs.getNamedAttr("return_intermediates", attrs.getBoolAttr(true)),
         attrs.getNamedAttr("epsilon", attrs.getF32FloatAttr(as<float>(eps)))};
@@ -1961,6 +1978,9 @@ std::pair<mlir::Value, mlir::Value> build_rmsnorm_bw(ModuleBuilder &mb, mlir::Va
     mlir::Value gamma = weight ? weight : build_ones(mb, {shape_of(input).back()}, element_type);
     mlir::Value rms =
         mb.insert_typecast(build_reciprocal(mb, rstd), stats_in_f32 ? mb.attrs().getF32Type() : element_type);
+    TT_FATAL(element_type.isBF16() && element_type_of(gamma).isBF16(),
+             "tt-crank build_rmsnorm_bw: ttml takes bf16 input and weight, got {} and {}", type_name(element_type),
+             type_name(element_type_of(gamma)));
     llvm::SmallVector<mlir::Type, 2> result_types{input.getType(), gamma.getType()};
     auto results = mb.create_composite(
         "rmsnorm_bw", {input, gamma, rms, grad_output}, result_types, {},

@@ -11,7 +11,14 @@ import torch
 import torch.nn.functional as F
 from torch.utils._python_dispatch import TorchDispatchMode
 
-from tt_crank.torch.testing import strict_no_fallback
+from tt_crank.torch._compile import CompileOption, MathFidelity
+from tt_crank.torch.testing import (
+    OPT1_COMPILE,
+    OPT_MODES,
+    post_aot_fx_hook,
+    run_backward,
+    strict_no_fallback,
+)
 
 _FUSED_GRAD_FN = "FusedRmsNormBackward0"
 _DT = torch.bfloat16
@@ -361,3 +368,203 @@ def test_rmsnorm_stress(shape: tuple[int, ...], dist: str) -> None:
     ), "output off by more than two bf16 steps"
     _check(tt_x.grad, ref_x.grad, "grad_input")
     _check(tt_w.grad, ref_w.grad, "grad_weight")
+
+
+_COMPILE_MODES = ["compile-opt0", OPT1_COMPILE]
+
+# input dtype, normalized_shape, weight dtype
+_COMPILE_OUTSIDE_TTML_CASES = {
+    "fp32": (torch.float32, (64,), torch.float32),
+    "fp32-two-dims": (torch.float32, (32, 64), torch.float32),
+    "bf16-two-dims": (_DT, (32, 64), _DT),
+    "bf16-fp32-weight": (_DT, (64,), torch.float32),
+}
+
+
+@pytest.mark.parametrize("mode", _COMPILE_MODES)
+@pytest.mark.parametrize(
+    "case", list(_COMPILE_OUTSIDE_TTML_CASES), ids=list(_COMPILE_OUTSIDE_TTML_CASES)
+)
+def test_rmsnorm_compile_outside_ttml(case: str, mode: str) -> None:
+    x_dtype, normalized_shape, w_dtype = _COMPILE_OUTSIDE_TTML_CASES[case]
+    x = torch.randn(2, 32, 64, dtype=x_dtype)
+    w = torch.randn(*normalized_shape, dtype=w_dtype)
+    ref_x, ref_w = _leaf(x, True), _leaf(w, True)
+    ref = F.rms_norm(ref_x, normalized_shape, ref_w, 1e-6)
+    ref.sum().backward()
+    ref = ref.detach()
+
+    tt_x, tt_w = _leaf(x, True, "tt"), _leaf(w, True, "tt")
+    outs: list[torch.Tensor] = []
+
+    def fn(a, b):
+        outs.append(F.rms_norm(a, normalized_shape, b, 1e-6))
+        return outs[-1].sum()
+
+    # OPT_LEVEL 1 leaves compute config to TTNN arch defaults; pin fp32 math to check accuracy.
+    # HiFi3, not HiFi4: HiFi4 with fp32 accumulation is inaccurate on Wormhole.
+    ops = run_backward(
+        mode,
+        fn,
+        tt_x,
+        tt_w,
+        options={
+            CompileOption.MATH_FIDELITY: MathFidelity.HiFi3,
+            CompileOption.FP32_DEST_ACC_EN: True,
+        },
+    )
+    out = outs[-1].detach()
+
+    # Calls ttml cannot take decompose during tracing
+    assert "aten._fused_rms_norm.default" not in ops, sorted(ops)
+    assert "aten._fused_rms_norm_backward.default" not in ops, sorted(ops)
+    _check(tt_x.grad, ref_x.grad, "grad_input")
+    _check(tt_w.grad, ref_w.grad, "grad_weight")
+    if x_dtype == torch.float32:
+        # tt's fp32 math is accurate to about one bf16 rounding; a promoted bf16 ttml kernel measures ~1e-2.
+        d = (out.cpu() - ref).abs()
+        rel_err = (d / ref.abs().clamp_min(1e-3)).max().item()
+        assert (
+            rel_err <= 2.0**-8 * 1.1
+        ), f"fp32 off by {rel_err:.3e}, more than one bf16 rounding (promoted to bf16 ttml?)"
+    else:
+        _check(out, ref, "output")
+
+
+def _fused_inputs(case: str):
+    shape, has_weight, _, _ = _FUSED_CASES[case]
+    x = torch.randn(*shape, dtype=_DT)
+    if case in _INPUT_SCALE:
+        x = (x.float() * _INPUT_SCALE[case]).to(_DT)
+    w = torch.randn(shape[-1], dtype=_DT) if has_weight else None
+    return x, w
+
+
+@pytest.mark.parametrize("mode", _COMPILE_MODES)
+@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
+def test_rmsnorm_compile_fused(case: str, mode: str) -> None:
+    shape, _, (x_grad, w_grad), eps = _FUSED_CASES[case]
+    x, w = _fused_inputs(case)
+    ref_x, ref_w = _leaf(x, x_grad), _leaf(w, w_grad)
+    ref_out = F.rms_norm(ref_x, (shape[-1],), ref_w, eps)
+    ref_out.sum().backward()
+
+    tt_x, tt_w = _leaf(x, x_grad, "tt"), _leaf(w, w_grad, "tt")
+    outs: list[torch.Tensor] = []
+
+    def fn(a, b):
+        outs.append(F.rms_norm(a, (shape[-1],), b, eps))
+        return outs[-1].sum()
+
+    ops = run_backward(mode, fn, tt_x, tt_w)
+
+    assert "aten._fused_rms_norm.default" in ops, sorted(ops)
+    assert "aten._fused_rms_norm_backward.default" in ops, sorted(ops)
+    _check(outs[-1].detach(), ref_out.detach(), "output")
+    _check(tt_x.grad, ref_x.grad, "grad_input")
+    if w is not None:
+        _check(tt_w.grad, ref_w.grad, "grad_weight")
+
+
+# Compile keeps rms in bf16 so ttml can promote it. The inlined decomposition rounds once (2**-8); the ttml
+# kernel measures up to 5.3e-3 when C is not a multiple of 32, so OPT 1 allows two roundings.
+_RSTD_RTOL_COMPILE = {"compile-opt0": 2.0**-8 * 1.05, "compile": 2.0**-7}
+
+
+@pytest.mark.parametrize("mode", _COMPILE_MODES)
+@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
+def test_rmsnorm_compile_rstd_precision(case: str, mode: str) -> None:
+    shape, _, _, eps = _FUSED_CASES[case]
+    x, w = _fused_inputs(case)
+    _, ref_rstd = torch.ops.aten._fused_rms_norm(x, [shape[-1]], w, eps)
+
+    def fn(a, b):
+        return torch.ops.aten._fused_rms_norm(a, [shape[-1]], b, eps)
+
+    # rstd is only lowered in a training graph; an inference graph takes ttir.rms_norm instead.
+    compiled = torch.compile(fn, backend="tt", fullgraph=True, options=OPT_MODES[mode])
+    _, rstd = compiled(_leaf(x, True, "tt"), _leaf(w, True, "tt"))
+    rstd = rstd.detach()
+
+    assert rstd.dtype == torch.float32, f"rstd dtype {rstd.dtype}"
+    assert rstd.shape == ref_rstd.shape, f"rstd shape {tuple(rstd.shape)}"
+    rel_err = ((rstd.cpu() - ref_rstd).abs() / ref_rstd.abs()).max().item()
+    rtol = _RSTD_RTOL_COMPILE[mode]
+    assert rel_err <= rtol, f"rstd max relative error {rel_err:.3e} > {rtol:.3e}"
+
+
+def _compile_inference(mode: str, fn, *tt_args):
+    """Compile and run fn under no_grad; return (output, post-aot op names)."""
+    ops: set[str] = set()
+
+    def record(gm):
+        ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
+
+    compiled = torch.compile(fn, backend="tt", fullgraph=True, options=OPT_MODES[mode])
+    with post_aot_fx_hook(record), torch.no_grad():
+        out = compiled(*tt_args)
+    return out, ops
+
+
+@pytest.mark.parametrize("mode", _COMPILE_MODES)
+@pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
+def test_rmsnorm_compile_inference(case: str, mode: str) -> None:
+    shape, _, _, eps = _FUSED_CASES[case]
+    x, w = _fused_inputs(case)
+    ref = F.rms_norm(x, (shape[-1],), w, eps)
+
+    out, ops = _compile_inference(
+        mode,
+        lambda a, b: F.rms_norm(a, (shape[-1],), b, eps),
+        x.to("tt"),
+        _leaf(w, False, "tt"),
+    )
+
+    assert "aten._fused_rms_norm.default" in ops, sorted(ops)
+    _check(out, ref, "output")
+
+
+@pytest.mark.parametrize("mode", _COMPILE_MODES)
+@pytest.mark.parametrize(
+    "case", list(_COMPILE_OUTSIDE_TTML_CASES), ids=list(_COMPILE_OUTSIDE_TTML_CASES)
+)
+def test_rmsnorm_compile_inference_outside_ttml(case: str, mode: str) -> None:
+    x_dtype, normalized_shape, w_dtype = _COMPILE_OUTSIDE_TTML_CASES[case]
+    x = torch.randn(2, 32, 64, dtype=x_dtype)
+    w = torch.randn(*normalized_shape, dtype=w_dtype)
+    ref = F.rms_norm(x, normalized_shape, w, 1e-6)
+
+    out, ops = _compile_inference(
+        mode,
+        lambda a, b: F.rms_norm(a, normalized_shape, b, 1e-6),
+        x.to("tt"),
+        w.to("tt"),
+    )
+
+    assert "aten._fused_rms_norm.default" not in ops, sorted(ops)
+    _check(out, ref, "output")
+
+
+# normalized_shape, dtype, expected error
+_DIRECT_UNSUPPORTED_CASES = {
+    "fp32": ((64,), torch.float32, "ttml takes bf16"),
+    "two-dims": ((32, 64), _DT, "more than one normalized dim"),
+}
+
+
+@pytest.mark.parametrize(
+    "case", list(_DIRECT_UNSUPPORTED_CASES), ids=list(_DIRECT_UNSUPPORTED_CASES)
+)
+def test_rmsnorm_compile_direct_fused_op_unsupported_raises(case: str) -> None:
+    normalized_shape, dtype, match = _DIRECT_UNSUPPORTED_CASES[case]
+    x = torch.randn(2, 32, 64, dtype=dtype).to("tt").requires_grad_()
+    w = torch.randn(*normalized_shape, dtype=dtype).to("tt").requires_grad_()
+    with pytest.raises(Exception, match=match):
+        run_backward(
+            "compile-opt0",
+            lambda a, b: torch.ops.aten._fused_rms_norm(
+                a, list(normalized_shape), b, 1e-6
+            )[0].sum(),
+            x,
+            w,
+        )

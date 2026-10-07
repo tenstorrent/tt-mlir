@@ -130,6 +130,7 @@ using ::tt::crank::build_reduce;
 using ::tt::crank::build_reduce_scatter;
 using ::tt::crank::build_relu;
 using ::tt::crank::build_reshape;
+using ::tt::crank::build_rms_norm;
 using ::tt::crank::build_rmsnorm_bw;
 using ::tt::crank::build_rmsnorm_fw;
 using ::tt::crank::build_rsqrt;

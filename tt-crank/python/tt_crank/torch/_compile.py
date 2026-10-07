@@ -952,6 +952,35 @@ def _(
     return (grad_query, grad_key, grad_value, None)
 
 
+_RMS_NORM_FW = _aten._fused_rms_norm.default
+_RMS_NORM_BW = _aten._fused_rms_norm_backward.default
+
+
+@_lowering(_RMS_NORM_FW)
+@_skip_prepare(_RMS_NORM_FW)
+def _(mb, input, normalized_shape, weight=None, eps=None):
+    # Only ttml-shaped calls reach here: tt's rms_norm (ops/rmsnorm.cpp) decomposes the rest before tracing.
+    # A direct _fused_rms_norm call bypasses that; a non-bf16 one fails in build_rmsnorm_fw when training.
+    if len(normalized_shape) != 1:
+        raise NotImplementedError(
+            "tt-crank compile: _fused_rms_norm over more than one normalized dim; use F.rms_norm"
+        )
+    eps = torch.finfo(torch.float32).eps if eps is None else float(eps)
+    if _compiling_training_graph():
+        return mb.rmsnorm_fw(input, weight, eps)
+    return mb.rms_norm(input, weight, eps), None
+
+
+@_lowering(_RMS_NORM_BW)
+@_skip_prepare(_RMS_NORM_BW)
+def _(mb, grad_out, input, normalized_shape, rstd, weight, output_mask):
+    grad_input, grad_weight = mb.rmsnorm_bw(grad_out, input, rstd, weight)
+    return (
+        grad_input if output_mask[0] else None,
+        grad_weight if output_mask[1] else None,
+    )
+
+
 # aten's cross_entropy is `_log_softmax` + `nll_loss_forward`, its backward `nll_loss_backward` +
 # `_log_softmax_backward_data`. Lowered on their own here: [rows x C] log-probabilities, integer
 # targets with ignore_index, no class weights.
