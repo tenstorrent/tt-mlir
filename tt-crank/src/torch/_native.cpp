@@ -350,7 +350,6 @@ public:
         assert_builder();
         return tk::build_sigmoid(*mb_, input);
     }
-    // ttml cross_entropy_fw/cross_entropy_bw composites over [rows x C] logits and [rows] targets.
     mlir::Value cross_entropy_fw(mlir::Value logits, mlir::Value target) {
         assert_builder();
         return tk::build_cross_entropy_fw(*mb_, logits, target);

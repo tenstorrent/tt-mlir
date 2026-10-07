@@ -212,13 +212,11 @@ def _cross_entropy_fw_sharding(logits, target):
 
 
 def _cross_entropy_bw_sharding(grad, logits, target):
-    """`tt_crank::cross_entropy_bw(grad [], logits [rows x C], target [rows]) -> [rows x C]`.
-
-    Same row split as the forward; the single grad is a scalar and stays Replicate.
-    """
+    """`tt_crank::cross_entropy_bw(grad [rows], logits [rows x C], target [rows]) -> [rows x C]`: the
+    forward's row split, with the per-row grads split alongside."""
     return [
         ([Replicate()], [Replicate(), Replicate(), Replicate()]),
-        ([Shard(0)], [Replicate(), Shard(0), Shard(0)]),
+        ([Shard(0)], [Shard(0), Shard(0), Shard(0)]),
     ]
 
 

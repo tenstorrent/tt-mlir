@@ -88,6 +88,7 @@ _FUSED_CASES = {
     "mean-ignore": (64, 128, "mean", True),
     "mean": (64, 128, "mean", False),
     "sum-ignore": (64, 128, "sum", True),
+    "none-ignore": (64, 128, "none", True),
     # off the tile grid on both axes
     "rows-40-classes-100": (40, 100, "mean", True),
     "wide": (32, 8192, "mean", True),
@@ -97,38 +98,24 @@ _FUSED_CASES = {
 @pytest.mark.parametrize("mode", _MODES)
 @pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
 def test_cross_entropy_fused(case: str, mode: str) -> None:
-    """bf16 mean/sum cross entropy fuses onto the ttml pair and matches an f32 CPU reference."""
+    """bf16 cross entropy fuses onto the ttml pair and matches an f32 CPU reference."""
     rows, classes, reduction, ignore = _FUSED_CASES[case]
     logits, target = _inputs(rows, classes, ignore)
-    ref_loss, ref_grad = _reference(reduction, logits, target)
-    loss, grad, ops = _run(mode, reduction, logits, target)
+    grad = torch.randn(rows, dtype=torch.bfloat16) if reduction == "none" else None
+    ref_loss, ref_grad = _reference(reduction, logits, target, grad)
+    loss, got, ops = _run(mode, reduction, logits, target, grad)
     assert _fused(ops), sorted(ops)
     torch.testing.assert_close(loss.float(), ref_loss, atol=0.05, rtol=0.02)
-    assert grad.shape == ref_grad.shape
-    assert _pcc(grad, ref_grad) >= 0.99
-
-
-_FALLBACK_CASES = {
-    # the backward kernel takes one grad for all rows
-    "none": (
-        "none",
-        torch.bfloat16,
-        lambda rows: torch.randn(rows, dtype=torch.bfloat16),
-    ),
-    # the kernels are bf16 only
-    "f32": ("mean", torch.float32, lambda rows: None),
-}
+    assert got.shape == ref_grad.shape
+    assert _pcc(got, ref_grad) >= 0.99
 
 
 @pytest.mark.parametrize("mode", _MODES)
-@pytest.mark.parametrize("case", list(_FALLBACK_CASES), ids=list(_FALLBACK_CASES))
-def test_cross_entropy_aten_fallback(case: str, mode: str) -> None:
-    """Outside the kernels' reach the aten ops stay and lower on their own, with correct grads."""
-    reduction, dtype, make_grad = _FALLBACK_CASES[case]
-    logits, target = _inputs(64, 128, True, dtype)
-    grad = make_grad(64)
-    ref_loss, ref_grad = _reference(reduction, logits, target, grad)
-    loss, got, ops = _run(mode, reduction, logits, target, grad)
+def test_cross_entropy_aten_fallback(mode: str) -> None:
+    """f32 logits are outside the bf16 kernels: the aten ops stay and lower on their own, with correct grads."""
+    logits, target = _inputs(64, 128, True, torch.float32)
+    ref_loss, ref_grad = _reference("mean", logits, target)
+    loss, got, ops = _run(mode, "mean", logits, target)
     assert not [op for op in ops if any(f in op for f in _FUSED)], sorted(ops)
     assert any("aten.nll_loss_forward" in op for op in ops), sorted(ops)
     torch.testing.assert_close(loss.float(), ref_loss, atol=0.05, rtol=0.02)
@@ -215,11 +202,11 @@ def test_cross_entropy_ignored_row_non_finite_logits(
     assert _pcc(got[kept], ref_grad[kept]) >= 0.99
 
 
-# Data parallel: rows sharded over the mesh. The rewrite runs on DTensor inputs, so the custom ops carry their
-# own sharding rules (_sharding): Shard(0) logits and targets give Shard(0) per-row losses, and the row sums in
-# TTCrossEntropy come out Partial("sum"). For `mean` the loss is Partial / Partial, which DTensor resolves to
-# the exact global sum / count; the aligned ignore pattern here keeps the case comparable with torch's own
-# nll rule (Partial("avg"), exact only with equal kept rows per shard). The unequal case is tested below.
+# Data parallel: rows sharded over the mesh. The custom ops carry their own sharding rules (_sharding): Shard(0)
+# logits and targets give Shard(0) per-row losses, whose row sum comes out Partial("sum"). For `mean` the loss
+# is Partial / Partial, which DTensor resolves to the exact global sum / count; the aligned ignore pattern here
+# keeps the case comparable with torch's own nll rule (Partial("avg"), exact only with equal kept rows per
+# shard). The unequal case is tested below.
 @pytest.mark.multichip
 @pytest.mark.parametrize("mode", _MODES)
 @pytest.mark.parametrize("reduction", ["sum", "mean"])
@@ -268,7 +255,7 @@ def test_nll_loss_rejects_rank_1() -> None:
     torch._dynamo.reset()
 
 
-# --- the dynamo rewrite: what it matches, what it leaves to aten, and the shapes it meets in practice ---
+# --- the cross_entropy_loss kernel: what it fuses, what it leaves to aten, and the shapes it meets in practice ---
 
 # Arithmetic between a 0-d tensor and a Python scalar (`loss * 0.9`) comes back as shape [1] on tt:
 # _prepare_op_args lifts the scalar to a [1] constant and the broadcast wins. torch's label-smoothing and
@@ -324,7 +311,7 @@ def test_cross_entropy_spellings_fuse(spelling: str, mode: str) -> None:
 @_SCALAR_0D_BUG
 @pytest.mark.parametrize("mode", _MODES)
 def test_cross_entropy_label_smoothing_stays_aten(mode: str) -> None:
-    """label_smoothing is outside the kernels; torch decomposes it onto log_softmax and the aten lowerings run."""
+    """label_smoothing is outside the kernels; aten decomposes it onto log_softmax and the aten lowerings run."""
     logits, target = _inputs(64, 128, True)
     ref = logits.detach().float().requires_grad_(True)
     ref_loss = F.cross_entropy(ref, target, ignore_index=_IGNORE, label_smoothing=0.1)
@@ -345,7 +332,7 @@ def test_cross_entropy_label_smoothing_stays_aten(mode: str) -> None:
 
 @pytest.mark.parametrize("mode", _MODES)
 def test_cross_entropy_class_weights_rejected(mode: str) -> None:
-    """Class weights skip the rewrite and the aten nll lowering says it does not take them."""
+    """Class weights are left to aten, whose nll lowering says it does not take them."""
     logits, target = _inputs(64, 128, True)
     x, t = _tt(logits, target)
     weight = torch.rand(128, dtype=torch.bfloat16).to("tt")
@@ -361,8 +348,8 @@ def test_cross_entropy_class_weights_rejected(mode: str) -> None:
 
 @pytest.mark.parametrize("mode", _MODES)
 def test_cross_entropy_rank_3_rejected(mode: str) -> None:
-    """[N, C, L] logits skip the rewrite (2-D only); torch decomposes N-D cross entropy onto `gather`, which
-    has no lowering, so it fails with a clear NotImplementedError rather than wrong IR."""
+    """[N, C, L] logits are left to aten (the kernels take 2-D only), which decomposes N-D cross entropy onto
+    `gather`; that has no lowering, so it fails with a clear NotImplementedError rather than wrong IR."""
     logits = (torch.randn(4, 16, 8, dtype=torch.bfloat16) * 3).to("tt")
     target = torch.randint(16, (4, 8)).to("tt")
     with pytest.raises(Exception, match="not implemented|expected \\[rows x C\\]"):
@@ -372,7 +359,7 @@ def test_cross_entropy_rank_3_rejected(mode: str) -> None:
 @_SCALAR_0D_BUG
 @pytest.mark.parametrize("mode", _MODES)
 def test_cross_entropy_probability_targets_stay_aten(mode: str) -> None:
-    """Float targets are class probabilities, not indices: no nll at all, the rewrite must not touch them."""
+    """Float targets are class probabilities, not indices: no nll at all, the kernels must not see them."""
     logits, _ = _inputs(64, 128, False)
     probs = torch.softmax(torch.randn(64, 128), dim=1)
     ref = logits.detach().float().requires_grad_(True)

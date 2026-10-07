@@ -1466,16 +1466,17 @@ mlir::Value build_cross_entropy_fw(ModuleBuilder &mb, mlir::Value logits, mlir::
 
 mlir::Value build_cross_entropy_bw(ModuleBuilder &mb, mlir::Value grad, mlir::Value logits, mlir::Value target) {
     const auto type = mlir::cast<mlir::RankedTensorType>(logits.getType());
-    TT_FATAL(mlir::cast<mlir::RankedTensorType>(grad.getType()).getNumElements() == 1,
-             "tt-crank cross_entropy_bw: ttml takes a single-element grad");
     auto [x, t] = cross_entropy_inputs(mb, logits, target);
-    mlir::Value g = build_reshape(mb, mb.insert_typecast(grad, type.getElementType()), {1, 1, 1, 1});
-    // The kernel's `scaler` is a compile-time constant; anything data-dependent rides in `grad`.
+    TT_FATAL(mlir::cast<mlir::RankedTensorType>(grad.getType()).getShape() == type.getShape().take_front(1),
+             "tt-crank cross_entropy_bw: grad must hold one value per logits row");
+    // The kernel scales every row by one grad (and `scaler`, a compile-time constant): run it with 1 and
+    // scale the rows after.
     const llvm::SmallVector<mlir::NamedAttribute, 1> attributes{
         mb.attrs().getNamedAttr("scaler", mb.attrs().getF32FloatAttr(1.0F))};
-    auto results =
-        mb.create_composite("cross_entropy_bw", {x, t, g}, {x.getType()}, attributes, cross_entropy_bw_decomposition);
-    return build_reshape(mb, results[0], type.getShape());
+    auto results = mb.create_composite("cross_entropy_bw", {x, t, build_ones(mb, {1, 1, 1, 1}, type.getElementType())},
+                                       {x.getType()}, attributes, cross_entropy_bw_decomposition);
+    mlir::Value per_row = build_reshape(mb, mb.insert_typecast(grad, type.getElementType()), {type.getShape()[0], 1});
+    return build_mul(mb, build_reshape(mb, results[0], type.getShape()), per_row);
 }
 
 mlir::Value build_sdpa(ModuleBuilder &mb, mlir::Value query, mlir::Value key, mlir::Value value, bool is_causal,

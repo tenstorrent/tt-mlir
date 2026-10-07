@@ -36,11 +36,7 @@ from torch._subclasses.fake_tensor import unset_fake_temporarily
 
 from . import _native
 from ._artifacts import Artifact, is_artifacts_dumper_active, register_artifact
-from .custom_ops.cross_entropy import (
-    cross_entropy_bw,
-    cross_entropy_fw,
-    rewrite_cross_entropy,
-)
+from .custom_ops.cross_entropy import cross_entropy_bw, cross_entropy_fw
 
 _aten = torch.ops.aten
 _funcol = torch.ops._c10d_functional
@@ -1039,8 +1035,7 @@ def _(
     return mb.where(picked, grad, mb.zeros_like(log_probs, list(log_probs.shape)))
 
 
-# The ttml cross entropy pair; the ops, their fakes and the `F.cross_entropy` rewrite onto them live in
-# custom_ops.cross_entropy. The aten lowerings above stay as the fallback for whatever the kernels do not take.
+# The ttml cross entropy pair (custom_ops.cross_entropy); the aten lowerings above take what the kernels do not.
 @_lowering(cross_entropy_fw)
 @_skip_prepare(cross_entropy_fw)
 def _(mb, logits, target):
@@ -1690,7 +1685,6 @@ def tt_backend(
     options: dict[CompileOption, str | int | bool] | None = None,
 ):
     """Top-level dynamo backend. Delegates to aot_module_simplified."""
-    rewrite_cross_entropy(gm)
     lower_and_compile = functools.partial(
         _lower_and_compile, options=_compile_options(options)
     )

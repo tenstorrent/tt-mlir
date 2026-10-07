@@ -592,9 +592,9 @@ TT_CRANK_API mlir::Value build_logical_not(ModuleBuilder &mb, mlir::Value input)
 
 // ttml `cross_entropy_fw`/`cross_entropy_bw` composites. `logits` is `[rows x C]` bf16, `target` `[rows]`
 // integer class indices in `[0, C)` (no ignore_index: mask the rows outside). The forward returns the
-// per-row loss `[rows]`; the backward `(softmax(logits) - onehot(target)) * grad` for a single-element
-// `grad`. The kernel takes `[N x 1 x H x W]` logits with `[N x H]` targets, so both reshape to one
-// `[1 x 1 x rows x C]` batch.
+// per-row loss `[rows]`; the backward `(softmax(logits) - onehot(target)) * grad[:, None]` for the `[rows]`
+// grad of those losses. The kernel takes `[N x 1 x H x W]` logits with `[N x H]` targets, so both reshape
+// to one `[1 x 1 x rows x C]` batch.
 TT_CRANK_API mlir::Value build_cross_entropy_fw(ModuleBuilder &mb, mlir::Value logits, mlir::Value target);
 TT_CRANK_API mlir::Value build_cross_entropy_bw(ModuleBuilder &mb, mlir::Value grad, mlir::Value logits,
                                                 mlir::Value target);
