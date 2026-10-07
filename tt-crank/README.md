@@ -2,7 +2,7 @@
 
 Compiler & runtime frontend for `tt-mlir`
 
-This is an experimental project which provides a thin frontend layer (enabling easier integration with `tt-mlir`) along with implementation of a torch backend (and possibly other integrations as well).
+This is an experimental project which provides a thin frontend layer (enabling easier integration with `tt-mlir`) along with a torch backend and an ONNX Runtime execution provider.
 
 ## Prerequisites
 
@@ -66,6 +66,34 @@ uv build --wheel --no-build-isolation tt-crank/ -o dist/
 
 The build requirements come with the dev requirements (installed by `install-py`). `tt-mlir` is configured and built separately in `tt-crank/build_wheel`, so the dev build is untouched. The wheel installs into any Python 3.12 environment with `pip install dist/tt_crank-*.whl`; the target machine needs `sfpi` (`tt-crank-install-sfpi` installs it) and tt-metal's system dependencies.
 
+## ONNX Runtime
+
+The ONNX Runtime plugin execution provider is built by default (`-DTT_CRANK_BUILD_ONNX=ON`) as `build/tt-crank/src/onnx/libtt_crank_ort.so` and ships in the wheel under `tt_crank/lib`; it needs `onnxruntime >= 1.30`. `tt_crank.onnx` wraps the ORT plumbing: `register()` loads the plugin (and unregisters it at exit so the device closes cleanly), `session()` creates a session on the EP with compile options, and `to_tt` / `to_host` / `bind` / `run` move tensors to the tt backend and back. It also carries model builders, random data and CPU goldens, shared with the tests.
+
+```python
+import tt_crank.onnx as tt_onnx
+
+tt_onnx.register()
+
+# Build a small model: y = relu(x @ w), w a constant initializer.
+model = tt_onnx.model(
+    [tt_onnx.node("MatMul", ["x", "w"], ["m"]), tt_onnx.node("Relu", ["m"], ["y"])],
+    [tt_onnx.input("x", [32, 64])],
+    [tt_onnx.output("y", [32, 128])],
+    [tt_onnx.constant("w", tt_onnx.randn(64, 128))],
+)
+
+session = tt_onnx.session(model, compile_options={"optimization_level": "2"})
+(y,) = tt_onnx.run(session, {"x": tt_onnx.randn(32, 64)})
+
+# Or check it against ORT's CPU EP in one call:
+tt_onnx.assert_tt_matches_cpu(model, {"x": tt_onnx.randn(32, 64)})
+```
+
+`session()` also takes a path to a `.onnx` file.
+
+The EP takes a graph whole or not at all: if any node is unsupported, the graph runs on ORT's CPU EP (`allow_cpu_fallback=True`; `TT_CRANK_LOG_FALLBACK_ENABLED=1` logs the declined nodes). `ep_context=` saves the compiled program as an EPContext `.onnx` that later sessions load without recompiling.
+
 ## Python tests
 
 The Python test suite lives in `tests/python/` and runs with pytest from `tt-crank/`. It imports the compiled `tt_crank` extension, so the Python package has to be installed first (see above).
@@ -74,6 +102,7 @@ Some examples of running tests with different options:
 
 ```sh
 pytest tt-crank/tests/python/                  # run all Python tests
+pytest tt-crank/tests/python/onnx/             # ONNX Runtime EP tests only
 pytest tt-crank/tests/python/ --sim            # route through ttsim
 ```
 
