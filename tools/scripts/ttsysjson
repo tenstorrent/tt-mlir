@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Simple JSON/FlatBuffer converter
 # Automatically detects conversion direction based on input file extension
