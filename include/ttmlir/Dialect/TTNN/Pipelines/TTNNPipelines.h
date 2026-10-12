@@ -264,7 +264,7 @@ struct TTIRToTTNNCommonPipelineOptions
       llvm::cl::desc("Enable generation of DRAM-sharded matmuls in the "
                      "optimizer. Requires memory-layout-analysis-enabled "
                      "(optimization level 2)."),
-      llvm::cl::init(false)};
+      llvm::cl::init(true)};
 
   // Option to enable/disable the workaround pass.
   //
