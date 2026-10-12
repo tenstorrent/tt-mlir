@@ -25,8 +25,8 @@
 //   %t    = ttnn.to_layout(%flat)                                 -> tile, l1, height_sharded, [P/G/32, Cp/32] tiles
 //           (emitted as ttnn.to_tensor_spec; TTNNDecomposeLayouts makes it the single in-place tilize)
 //   %y    = ttnn.linear(%t, %Wt Cp x Cout (tile, dram, conv2d weight dtype), %b 1 x 1 x 1 x Cout (tile, dram))
-//           {matmul_program_config = 1d<grid, in0_block_w Cp/32, out_subblock 1 x min(2, Cout/32),
-//                                       out_block_h 2 (1 if P/G/32 is odd), out_block_w Cout/32,
+//           {matmul_program_config = 1d<grid, in0_block_w Cp/32, out_subblock 2x2 (dest holds 4 fp32 tiles),
+//                                       out_block_h = largest divisor of P/G/32 up to 10 (even), out_block_w Cout/32,
 //                                       per_core_m P/G/32, per_core_n Cout/32, fuse_batch,
 //                                       fused_activation = the conv's activation, mcast_in0 false>,
 //            compute_config = the conv's}
@@ -43,14 +43,14 @@
 //   5. move the conv weight and bias to DRAM (conv2d keeps them on host), reshape the weight
 //      [Cout, Cp, 1, 1] -> [Cout, Cp], transpose to [Cp, Cout], cast to the conv2d weight dtype;
 //   6. replace the conv2d by ttnn.linear with the conv's compute config and fused activation inside an
-//      explicit 1-D height-sharded program config (out_block_h = 2), output TILE / L1 / HEIGHT_SHARDED
+//      explicit 1-D height-sharded program config (small output blocks), output TILE / L1 / HEIGHT_SHARDED
 //      [P/G, Cout].
 //
 // Why linear and not conv2d: conv2d's automatic matmul config uses
 // out_block_h = per_core_M; when the per-core shard is large (hundreds of KB)
 // its static circular buffers grow with it, clash with the input and output
 // shards and the program cannot be built.
-// out_block_h = 2 runs the same kernel with small buffers.
+// small output blocks run the same kernel with small buffers.
 //
 // Requirements: P divisible by G, P/G and Cp and Cout multiples of 32;
 // otherwise the stem is left as the optimizer placed it (with a warning).
@@ -72,7 +72,10 @@
 #include "ttmlir/Support/Logger.h"
 
 #include "mlir/IR/Builders.h"
+#include "llvm/Support/raw_ostream.h"
+
 #include "llvm/ADT/SmallVector.h"
+#include <cstdlib>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNSTEMFOLDLINEAR
@@ -109,6 +112,25 @@ static int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor) {
   return 1;
 }
 
+// Largest divisor of `value` that is <= maxDivisor and a multiple of `step`
+// (falls back to `step` itself, which always divides `value` when called).
+static int64_t largestDivisorUpTo(int64_t value, int64_t maxDivisor,
+                                  int64_t step) {
+  for (int64_t d = std::min(value, maxDivisor); d >= step; --d) {
+    if (value % d == 0 && d % step == 0) {
+      return d;
+    }
+  }
+  return step;
+}
+
+// Release-build probe (TTMLIR_DEBUG is compiled out in Release): prints the
+// matmul blocking the pass chose. Enabled with TTMLIR_STEM_FOLD_PROBE=1.
+static bool stemFoldProbeEnabled() {
+  static const bool enabled = std::getenv("TTMLIR_STEM_FOLD_PROBE") != nullptr;
+  return enabled;
+}
+
 // The folded stem as it arrives here.
 struct FoldedStem {
   PixelUnshuffleOp pu;
@@ -136,7 +158,11 @@ static std::optional<FoldedStem> matchFoldedStem(PixelUnshuffleOp pu) {
       s.conv = c;
       break;
     }
-    if (!mlir::isa<ReshapeOp, ToTensorSpecOp, ToMemoryConfigOp>(u)) {
+    // A ttnn.reallocate the spill pass placed in the chain moves the same
+    // tensor; it is a view for the purpose of the match and is dropped with
+    // the rest of the chain.
+    if (!mlir::isa<ReshapeOp, ToTensorSpecOp, ToMemoryConfigOp, ReallocateOp>(
+            u)) {
       break;
     }
     s.viewChain.push_back(u);
@@ -316,13 +342,30 @@ private:
             : UnaryWithParamAttr{};
     auto [gridX, gridY] = utils::getPhysicalGridDimensions(
         mlir::cast<TTNNLayoutAttr>(outTy.getEncoding()));
+    // Blocking. The destination register holds 4 tiles with fp32
+    // accumulation, so the sub-block is 2x2 (2x1 for a single output tile
+    // column, 1xN when per_core_m is odd). The output block is the largest
+    // divisor of per_core_m up to 10 that the sub-block height divides: with
+    // 2-row blocks the inner loop re-read the weights per_core_m/2 times per
+    // core; 8-10 row blocks cut that to ~9 passes at a few tens of KB of
+    // circular buffers (in0 block = out_block_h x in0_block_w tiles).
+    const int64_t outSubblockH = perCoreM % 2 == 0 ? 2 : 1;
+    const int64_t outSubblockW = largestDivisorUpTo(perCoreN, 4 / outSubblockH);
+    const int64_t outBlockH = largestDivisorUpTo(perCoreM, 10, outSubblockH);
+    if (stemFoldProbeEnabled()) {
+      llvm::errs() << "[STEM_FOLD_PROBE] linear blocking: per_core_m "
+                   << perCoreM << " per_core_n " << perCoreN << " in0_block_w "
+                   << Kt << " out_subblock " << outSubblockH << "x"
+                   << outSubblockW << " out_block " << outBlockH << "x"
+                   << perCoreN << " (" << s.pixels << " pixels, " << numCores
+                   << " cores)\n";
+    }
     auto programConfig = MatmulMultiCoreReuseMultiCast1DProgramConfigAttr::get(
         ctx, CoreCoordAttr::get(ctx, gridX, gridY),
         /*in0_block_w=*/static_cast<uint64_t>(Kt),
-        /*out_subblock_h=*/1,
-        /*out_subblock_w=*/
-        static_cast<uint64_t>(largestDivisorUpTo(perCoreN, 2)),
-        /*out_block_h=*/static_cast<uint64_t>(perCoreM % 2 == 0 ? 2 : 1),
+        /*out_subblock_h=*/static_cast<uint64_t>(outSubblockH),
+        /*out_subblock_w=*/static_cast<uint64_t>(outSubblockW),
+        /*out_block_h=*/static_cast<uint64_t>(outBlockH),
         /*out_block_w=*/static_cast<uint64_t>(perCoreN),
         /*per_core_m=*/static_cast<uint64_t>(perCoreM),
         /*per_core_n=*/static_cast<uint64_t>(perCoreN),
@@ -335,6 +378,20 @@ private:
         s.conv.getComputeConfigAttr());
 
     s.conv.getResult().replaceAllUsesWith(linear.getResult());
+    // A ttnn.reallocate inserted by the spill pass on the conv result keeps
+    // the layout of its operand: retype it (and any chain of reallocates
+    // behind it) to the linear's output.
+    llvm::SmallVector<Value> retypeFrom{linear.getResult()};
+    while (!retypeFrom.empty()) {
+      Value v = retypeFrom.pop_back_val();
+      for (Operation *user : v.getUsers()) {
+        if (auto realloc = mlir::dyn_cast<ReallocateOp>(user)) {
+          realloc.getResult().setType(
+              mlir::cast<RankedTensorType>(v.getType()));
+          retypeFrom.push_back(realloc.getResult());
+        }
+      }
+    }
     s.conv.erase();
     for (Operation *op : llvm::reverse(s.viewChain)) {
       if (op->use_empty()) {

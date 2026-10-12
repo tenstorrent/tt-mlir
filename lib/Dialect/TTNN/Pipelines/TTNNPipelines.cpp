@@ -25,6 +25,9 @@
 #include "mlir/Transforms/Passes.h"
 #include <cstdlib>
 
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+
 namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 // Helper functions which combine multiple passes into logical groupings.
@@ -32,6 +35,18 @@ namespace mlir::tt::ttnn {
 
 // Stem fold on/off switch shared by the TTIR and TTNN stages (see
 // createTTNNPipelineTTIRPasses for what it toggles).
+// A/B switch shared with the optimizer rule books: TTMLIR_OPT_DISABLE is a
+// comma-separated list of rule names that are turned off.
+static bool optRuleDisabled(llvm::StringRef name) {
+  static const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+  if (!env) {
+    return false;
+  }
+  llvm::SmallVector<llvm::StringRef> parts;
+  llvm::StringRef(env).split(parts, ',', -1, false);
+  return llvm::is_contained(parts, name);
+}
+
 static bool stemFoldEnabled(const TTIRToTTNNCommonPipelineOptions &options) {
   return options.enableStemFold && !std::getenv("TTMLIR_DISABLE_STEM_FOLD");
 }
@@ -180,10 +195,26 @@ void createTTNNPipelineAnalysisPasses(
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNRowMajorLayoutPropagation());
           innerPm.addPass(mlir::tt::ttnn::createTTNNDeduceMoEComputeLayouts());
+          // Convert the conv2d weight dtype BEFORE the layout search (and again
+          // after it, which is then a no-op): the op-model then sizes the weight
+          // circular buffers for the dtype the kernels really use. With bf16
+          // estimates a 3x3 conv's weight CB is twice its bfp8 size, which
+          // rejected height-sharded configs that fit with bfp8 weights.
+          // TTMLIR_OPT_DISABLE=conv_dtype_before_search restores the old order.
+          if (conv2dWeightDtype != BFPDtype::None &&
+              !optRuleDisabled("conv_dtype_before_search")) {
+            TTNNConv2dWeightDtypeConversionOptions earlyDtypeOpts;
+            earlyDtypeOpts.targetDtype = conv2dWeightDtype;
+            innerPm.addPass(mlir::tt::ttnn::createTTNNConv2dWeightDtypeConversion(
+                earlyDtypeOpts));
+          }
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
                   propagationOptions));
           if (memLayoutEnabled) {
+            // Order sibling producers so the L1-fed one runs first; the
+            // spill pass then sees its input freed before the DRAM-fed op.
+            innerPm.addPass(mlir::tt::ttnn::createTTNNL1ProducerFirst());
             innerPm.addPass(mlir::tt::ttnn::createTTNNGreedyL1SpillManagement(
                 spillOptions));
           }

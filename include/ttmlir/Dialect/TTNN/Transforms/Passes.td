@@ -1076,8 +1076,8 @@ def TTNNStemFoldLinear : Pass<"ttnn-stem-fold-linear", "::mlir::ModuleOp"> {
       %t    = ttnn.to_layout(%flat)                               -> tile l1 height_sharded, [P/G/32, Cp/32] tiles
               (emitted as to_tensor_spec; TTNNDecomposeLayouts makes it one in-place tilize)
       %y    = ttnn.linear(%t, %Wt CpxCout tile dram (conv2d weight dtype), %b 1x1x1xCout tile dram)
-              {matmul_program_config = 1d<grid, in0_block_w Cp/32, out_subblock 1 x min(2, Cout/32),
-                                          out_block_h 2 (1 if P/G/32 is odd), out_block_w Cout/32,
+              {matmul_program_config = 1d<grid, in0_block_w Cp/32, out_subblock 2x2 (4 fp32 dest tiles),
+                                          out_block_h = largest even divisor of P/G/32 up to 10, out_block_w Cout/32,
                                           per_core_m P/G/32, per_core_n Cout/32, fuse_batch,
                                           fused_activation = the conv's activation, mcast_in0 false>,
                compute_config = the conv's}
@@ -1091,12 +1091,12 @@ def TTNNStemFoldLinear : Pass<"ttnn-stem-fold-linear", "::mlir::ModuleOp"> {
     [Cout,Cp,1,1] -> [Cout,Cp], transposed to [Cp,Cout], cast to the conv2d
     weight dtype; (6) conv2d replaced by ttnn.linear with the conv's compute
     config and fused activation in an explicit 1-D height-sharded program
-    config (out_block_h = 2), output TILE / L1 / HEIGHT_SHARDED [P/G, Cout].
+    config (small output blocks), output TILE / L1 / HEIGHT_SHARDED [P/G, Cout].
 
     Why linear: conv2d's own matmul config uses out_block_h = per_core_M; with
     large per-core shards (hundreds of KB) its static circular buffers clash
-    with the shards and the program cannot be built. out_block_h = 2 runs the
-    same kernel with small buffers.
+    with the shards and the program cannot be built. Small output blocks run
+    the same kernel with small buffers.
 
     Requirements: P divisible by G, P/G and Cp and Cout multiples of 32;
     otherwise the stem is left as the optimizer placed it (with a warning).
@@ -1107,6 +1107,30 @@ def TTNNStemFoldLinear : Pass<"ttnn-stem-fold-linear", "::mlir::ModuleOp"> {
            /*default=*/"::mlir::tt::ttnn::BFPDtype::None",
            "Weight data type for the stem linear (the conv2d weight dtype).">,
   ];
+}
+
+def TTNNL1ProducerFirst : Pass<"ttnn-l1-producer-first", "::mlir::ModuleOp"> {
+  let summary = "Schedule the L1-fed producer of a multi-input op before its DRAM-fed sibling producer.";
+  let description = [{
+    Runs after memory layout propagation and before L1 spill management, on
+    the op order the spill pass will simulate. For an op with two or more
+    tensor operands whose producers are independent ops in the same block,
+    the producer whose L1 input was defined most recently is moved in front
+    of a sibling producer whose L1 inputs are all older (recent first: the
+    short-lived L1 value is consumed and freed before the sibling's circular
+    and transient buffers can force it out to DRAM). Spills are not inserted
+    yet at this point, so an old L1 input is the stand-in for "will come from
+    DRAM". The pattern this targets is a residual add of a long-skip
+    convolution and a transposed convolution of the value produced just
+    before: with the original order the transposed convolution's input was
+    evicted and the op took its slow DRAM path.
+
+    Only the producer op itself moves, only when it is a compute op (layout
+    ops stay next to their consumer), and only when every one of its
+    operands is defined before the new position. TTMLIR_OPT_DISABLE=
+    l1_producer_first turns the pass into a no-op.
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
 }
 
 def TTNNPixelUnshuffleL1Opt : Pass<"ttnn-pixel-unshuffle-l1-opt", "::mlir::ModuleOp"> {

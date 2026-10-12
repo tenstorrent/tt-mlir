@@ -22,6 +22,7 @@
 #include "mlir/IR/BuiltinTypes.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/ADT/TypeSwitch.h"
 
 #include <algorithm>
@@ -40,6 +41,36 @@ namespace mlir::tt::ttnn {
 // buffers at runtime.
 static constexpr double kCBFragCushionFraction = 0.10;
 
+// Kill switches (TTMLIR_OPT_DISABLE=<name>[,<name>...]):
+//   demote_producer       copy-based eviction for convolutions evicted right
+//                         after they ran (instead of a DRAM-output program)
+//   transient_model       do not model op-internal buffers / freed inputs in
+//                         the address simulation
+//   cb_zone_compact       no ttnn.reallocate compaction before eviction when
+//                         a live tensor sits in the CB region
+//   large_tensor_shortlived  keep the 40 % large-tensor guard for tensors
+//                         consumed by the very next op as well
+static bool optDisabled(const char *name) {
+  const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+  return env && llvm::StringRef(env).contains(name);
+}
+static bool producerDemoteDisabled() {
+  static const bool disabled = optDisabled("demote_producer");
+  return disabled;
+}
+static bool transientModelDisabled() {
+  static const bool disabled = optDisabled("transient_model");
+  return disabled;
+}
+static bool cbZoneCompactDisabled() {
+  static const bool disabled = optDisabled("cb_zone_compact");
+  return disabled;
+}
+static bool shortLivedExemptionDisabled() {
+  static const bool disabled = optDisabled("large_tensor_shortlived");
+  return disabled;
+}
+
 // Release-build probe for attributing a spill/eviction to the branch that
 // caused it. TTMLIR_DEBUG compiles to a no-op in Release (TTMLIR_ENABLE_DEBUG_LOGS
 // is undefined), so this writes to stderr directly, gated on TTMLIR_SPILL_PROBE.
@@ -47,8 +78,16 @@ static bool spillProbeEnabled() {
   static const bool enabled = (std::getenv("TTMLIR_SPILL_PROBE") != nullptr);
   return enabled;
 }
-static llvm::StringRef probeOpName(mlir::Operation *op) {
-  return op ? op->getName().getStringRef() : llvm::StringRef("<null>");
+static std::string probeOpName(mlir::Operation *op) {
+  if (!op) {
+    return "<null>";
+  }
+  std::string label = op->getName().getStringRef().str();
+  if (auto nameLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
+    label += "@";
+    label += nameLoc.getName().str();
+  }
+  return label;
 }
 #define SPILL_PROBE(...)                                                       \
   do {                                                                         \
@@ -118,41 +157,69 @@ void SumL1MemoryTracker::restoreSnapshot(const Snapshot &snapshot) {
   currentOccupied = snapshot.currentOccupied;
 }
 
-void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore) {
+void SumL1MemoryTracker::allocateAddress(Value result, uint64_t l1SizePerCore,
+                                         uint64_t transientPerCore,
+                                         Value freedBefore,
+                                         bool transientAfterFree) {
   if (l1SizePerCore == 0 || l1Budget == 0) {
     return;
   }
   uint64_t alignedSize =
       (l1SizePerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
 
-  // Walk free list from highest address (reverse) for top-down first-fit.
-  for (int i = static_cast<int>(freeList.size()) - 1; i >= 0; --i) {
-    if (freeList[i].size() >= alignedSize) {
-      // Allocate from the top of this block.
-      uint64_t allocStart = freeList[i].end - alignedSize;
-      tensorAddresses[result] = {allocStart, alignedSize};
-      // First allocation in this slot: open the alias group at refcount 1
-      // and account the buffer once. Aliases joining via allocateAddressAt
-      // do not re-bump currentOccupied.
-      aliasGroups[allocStart] = {/*count=*/1, /*rawSize=*/l1SizePerCore};
-      currentOccupied += l1SizePerCore;
-
-      // Shrink or remove the free block.
-      if (freeList[i].size() == alignedSize) {
-        freeList.erase(freeList.begin() + i);
-      } else {
-        freeList[i].end = allocStart;
-      }
-      return;
+  // Model the op's internal buffers: carve them out first (top-down), place
+  // the output, then give the carved block back. The hole they leave above
+  // the output is what the hardware allocator sees after the op.
+  std::optional<uint64_t> trStart;
+  uint64_t alignedTransient = 0;
+  if (transientPerCore > 0) {
+    alignedTransient =
+        (transientPerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
+  }
+  if (transientPerCore > 0 && !transientAfterFree) {
+    trStart = findTopDown(freeList, alignedTransient);
+    if (trStart) {
+      carve(freeList, *trStart, alignedTransient);
     }
   }
-  llvm_unreachable("allocateAddress: no contiguous free block; caller must "
-                   "pre-check wouldAllocateAt");
+  // An input the op frees before its output is released now: the output
+  // can take its place (a 3x3 conv's output lands where its input was, the
+  // halo hole is below it, not above).
+  if (freedBefore && tensorAddresses.count(freedBefore)) {
+    freeAddress(freedBefore);
+  }
+  // conv2d re-places its halo after that free (reallocate_halo_output):
+  // it lands at the top of the merged space and the output goes below it.
+  if (transientPerCore > 0 && transientAfterFree) {
+    trStart = findTopDown(freeList, alignedTransient);
+    if (trStart) {
+      carve(freeList, *trStart, alignedTransient);
+    }
+  }
+  std::optional<uint64_t> allocStart = findTopDown(freeList, alignedSize);
+  if (!allocStart) {
+    llvm_unreachable("allocateAddress: no contiguous free block; caller must "
+                     "pre-check wouldAllocateAt");
+  }
+  carve(freeList, *allocStart, alignedSize);
+  tensorAddresses[result] = {*allocStart, alignedSize};
+  // First allocation in this slot: open the alias group at refcount 1
+  // and account the buffer once. Aliases joining via allocateAddressAt
+  // do not re-bump currentOccupied.
+  aliasGroups[*allocStart] = {/*count=*/1, /*rawSize=*/l1SizePerCore};
+  currentOccupied += l1SizePerCore;
+  if (trStart) {
+    insertFreeBlock(*trStart, *trStart + alignedTransient);
+  }
 }
 
-void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore) {
+void SumL1MemoryTracker::addTensor(Value result, uint64_t l1SizePerCore,
+                                   uint64_t transientPerCore,
+                                   Value freedBefore,
+                                   bool transientAfterFree) {
   tensorSizes[result] = l1SizePerCore;
-  allocateAddress(result, l1SizePerCore);
+  allocateAddress(result, l1SizePerCore, transientPerCore, freedBefore,
+                  transientAfterFree);
 }
 
 void SumL1MemoryTracker::allocateAddressAt(Value result, Value srcAtSameAddr) {
@@ -195,29 +262,7 @@ void SumL1MemoryTracker::freeAddress(Value result) {
   }
   currentOccupied -= groupIt->second.rawSize;
   aliasGroups.erase(groupIt);
-
-  // Find insertion point in sorted freeList (sorted by start address).
-  size_t insertIdx = 0;
-  while (insertIdx < freeList.size() &&
-         freeList[insertIdx].start < freedStart) {
-    ++insertIdx;
-  }
-
-  // Check merge with previous and next free blocks.
-  bool mergePrev = insertIdx > 0 && freeList[insertIdx - 1].end == freedStart;
-  bool mergeNext =
-      insertIdx < freeList.size() && freeList[insertIdx].start == freedEnd;
-
-  if (mergePrev && mergeNext) {
-    freeList[insertIdx - 1].end = freeList[insertIdx].end;
-    freeList.erase(freeList.begin() + insertIdx);
-  } else if (mergePrev) {
-    freeList[insertIdx - 1].end = freedEnd;
-  } else if (mergeNext) {
-    freeList[insertIdx].start = freedStart;
-  } else {
-    freeList.insert(freeList.begin() + insertIdx, {freedStart, freedEnd});
-  }
+  insertFreeBlock(freedStart, freedEnd);
 }
 
 void SumL1MemoryTracker::logState() const {
@@ -270,6 +315,15 @@ uint64_t SumL1MemoryTracker::getLowestOccupiedAddress() const {
   return lowest;
 }
 
+std::optional<uint64_t>
+SumL1MemoryTracker::getTensorAddress(Value result) const {
+  auto it = tensorAddresses.find(result);
+  if (it == tensorAddresses.end()) {
+    return std::nullopt;
+  }
+  return it->second.first;
+}
+
 llvm::SmallVector<Value>
 SumL1MemoryTracker::getValuesAboveVirtualThreshold(uint64_t threshold) const {
   llvm::SmallVector<Value> result;
@@ -282,19 +336,117 @@ SumL1MemoryTracker::getValuesAboveVirtualThreshold(uint64_t threshold) const {
 }
 
 std::optional<uint64_t>
-SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore) const {
+SumL1MemoryTracker::wouldAllocateAt(uint64_t l1SizePerCore,
+                                    uint64_t transientPerCore,
+                                    Value freedBefore,
+                                    bool transientAfterFree) const {
   if (l1SizePerCore == 0 || l1Budget == 0) {
     return l1Budget; // Trivially fits at the top.
   }
   uint64_t alignedSize =
       (l1SizePerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
+  auto freedIt = freedBefore ? tensorAddresses.find(freedBefore)
+                             : tensorAddresses.end();
+  // Freeing an alias of a slot that another live value still shares does
+  // not release the slot (see freeAddress).
+  bool hasFreed = freedIt != tensorAddresses.end();
+  if (hasFreed) {
+    auto groupIt = aliasGroups.find(freedIt->second.first);
+    if (groupIt != aliasGroups.end() && groupIt->second.count > 1) {
+      hasFreed = false;
+    }
+  }
+  if (transientPerCore == 0 && !hasFreed) {
+    return findTopDown(freeList, alignedSize);
+  }
+  // The op's internal buffers are allocated first (with the input still
+  // live), then the input it frees is released, then the output is placed.
+  llvm::SmallVector<FreeBlock> blocks = freeList;
+  uint64_t alignedTransient =
+      (transientPerCore + kL1Alignment - 1) & ~(kL1Alignment - 1);
+  // The transient buffers are allocated while the input is still live; when
+  // the op re-places them after the free they end up at the top of the
+  // merged free space, otherwise they stay below the freed slot.
+  if (transientPerCore > 0 && !findTopDown(blocks, alignedTransient)) {
+    return std::nullopt;
+  }
+  if (transientPerCore > 0 && !transientAfterFree) {
+    carve(blocks, *findTopDown(blocks, alignedTransient), alignedTransient);
+  }
+  if (hasFreed) {
+    release(blocks, freedIt->second.first,
+            freedIt->second.first + freedIt->second.second);
+  }
+  if (transientPerCore > 0 && transientAfterFree) {
+    std::optional<uint64_t> trStart = findTopDown(blocks, alignedTransient);
+    if (!trStart) {
+      return std::nullopt;
+    }
+    carve(blocks, *trStart, alignedTransient);
+  }
+  return findTopDown(blocks, alignedSize);
+}
+
+std::optional<uint64_t>
+SumL1MemoryTracker::findTopDown(const llvm::SmallVector<FreeBlock> &blocks,
+                                uint64_t alignedSize) {
   // Walk free list from highest address (reverse) for top-down first-fit.
-  for (int i = static_cast<int>(freeList.size()) - 1; i >= 0; --i) {
-    if (freeList[i].size() >= alignedSize) {
-      return freeList[i].end - alignedSize;
+  for (int i = static_cast<int>(blocks.size()) - 1; i >= 0; --i) {
+    if (blocks[i].size() >= alignedSize) {
+      return blocks[i].end - alignedSize;
     }
   }
   return std::nullopt;
+}
+
+void SumL1MemoryTracker::carve(llvm::SmallVector<FreeBlock> &blocks,
+                               uint64_t start, uint64_t size) {
+  uint64_t end = start + size;
+  for (size_t i = 0; i < blocks.size(); ++i) {
+    if (blocks[i].start <= start && end <= blocks[i].end) {
+      if (blocks[i].start == start && blocks[i].end == end) {
+        blocks.erase(blocks.begin() + i);
+      } else if (blocks[i].start == start) {
+        blocks[i].start = end;
+      } else if (blocks[i].end == end) {
+        blocks[i].end = start;
+      } else {
+        FreeBlock upper{end, blocks[i].end};
+        blocks[i].end = start;
+        blocks.insert(blocks.begin() + i + 1, upper);
+      }
+      return;
+    }
+  }
+  llvm_unreachable("carve: range is not inside one free block");
+}
+
+void SumL1MemoryTracker::release(llvm::SmallVector<FreeBlock> &blocks,
+                                 uint64_t freedStart, uint64_t freedEnd) {
+  // Find insertion point in sorted list (sorted by start address).
+  size_t insertIdx = 0;
+  while (insertIdx < blocks.size() && blocks[insertIdx].start < freedStart) {
+    ++insertIdx;
+  }
+  // Check merge with previous and next free blocks.
+  bool mergePrev = insertIdx > 0 && blocks[insertIdx - 1].end == freedStart;
+  bool mergeNext =
+      insertIdx < blocks.size() && blocks[insertIdx].start == freedEnd;
+  if (mergePrev && mergeNext) {
+    blocks[insertIdx - 1].end = blocks[insertIdx].end;
+    blocks.erase(blocks.begin() + insertIdx);
+  } else if (mergePrev) {
+    blocks[insertIdx - 1].end = freedEnd;
+  } else if (mergeNext) {
+    blocks[insertIdx].start = freedStart;
+  } else {
+    blocks.insert(blocks.begin() + insertIdx, {freedStart, freedEnd});
+  }
+}
+
+void SumL1MemoryTracker::insertFreeBlock(uint64_t freedStart,
+                                         uint64_t freedEnd) {
+  release(freeList, freedStart, freedEnd);
 }
 
 //===----------------------------------------------------------------------===//
@@ -592,6 +744,9 @@ void L1SpillManagement<MemoryTracker>::processDeadTensors(
       l1EventLog.push_back({L1Event::kDealloc, deadVal, 0, /*skipped=*/false});
       memoryTracker.removeTensor(deadVal);
       Operation *deadOp = deadVal.getDefiningOp();
+      SPILL_PROBE("  DEAD pos={0} val={1} occupied={2} nTracked={3}", pos,
+                  probeOpName(deadOp), memoryTracker.getOccupiedL1(),
+                  memoryTracker.getTrackedCount());
       observer_->onDeadRemoval(deadOp, pos, memoryTracker.getOccupiedL1());
       TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                    "  [pos={0}] DEAD: {1}, L1 now {2}/{3}", pos,
@@ -613,6 +768,31 @@ bool L1SpillManagement<MemoryTracker>::willAliasSourceInL1(
 }
 
 template <typename MemoryTracker>
+Value L1SpillManagement<MemoryTracker>::opFreedInput(Operation *op) {
+  auto convFrees = [](auto convOp) -> Value {
+    auto cfg = convOp.getConv2dConfigAttr();
+    if (cfg && cfg.getDeallocateActivation() &&
+        cfg.getDeallocateActivation().getValue()) {
+      return convOp.getInput();
+    }
+    return Value();
+  };
+  if (auto conv = mlir::dyn_cast<Conv2dOp>(op)) {
+    return convFrees(conv);
+  }
+  if (auto convT = mlir::dyn_cast<ConvTranspose2dOp>(op)) {
+    return convFrees(convT);
+  }
+  if (auto pool = mlir::dyn_cast<MaxPool2dOp>(op)) {
+    return pool.getDeallocateInput() ? pool.getInput() : Value();
+  }
+  if (auto pool = mlir::dyn_cast<AvgPool2dOp>(op)) {
+    return pool.getDeallocateInput() ? pool.getInput() : Value();
+  }
+  return Value();
+}
+
+template <typename MemoryTracker>
 uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     Operation *op, int64_t pos, ScheduleData &data, uint64_t opL1Usage,
     uint64_t cbPeakUsage, uint64_t l1Size, uint64_t l1BuffersPeakUsage) {
@@ -624,6 +804,38 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
               memoryTracker.getOccupiedL1(),
               memoryTracker.getLowestOccupiedAddress(),
               memoryTracker.getTrackedCount());
+  pendingTransientBytes = 0;
+  pendingFreedBefore = Value();
+  pendingTransientAfterFree = false;
+  {
+    Value freed = opFreedInput(op);
+    if (freed && !transientModelDisabled() &&
+        memoryTracker.hasTensorAddress(freed) &&
+        data.lastUsePositions.lookup(freed) == pos) {
+      pendingFreedBefore = freed;
+      // conv2d / conv_transpose2d move the halo after freeing the input
+      // (tt-metal reallocate_halo_output defaults to true); pools do so
+      // only when asked.
+      auto convHaloMoved = [](auto convOp) {
+        auto cfg = convOp.getConv2dConfigAttr();
+        if (cfg && cfg.getReallocateHaloOutput()) {
+          return cfg.getReallocateHaloOutput().getValue();
+        }
+        return true; // tt-metal default
+      };
+      if (auto pool = mlir::dyn_cast<MaxPool2dOp>(op)) {
+        pendingTransientAfterFree = pool.getReallocateHaloOutput();
+      } else if (auto pool = mlir::dyn_cast<AvgPool2dOp>(op)) {
+        pendingTransientAfterFree = pool.getReallocateHaloOutput();
+      } else if (auto conv = mlir::dyn_cast<Conv2dOp>(op)) {
+        pendingTransientAfterFree = convHaloMoved(conv);
+      } else if (auto convT = mlir::dyn_cast<ConvTranspose2dOp>(op)) {
+        pendingTransientAfterFree = convHaloMoved(convT);
+      } else {
+        pendingTransientAfterFree = true;
+      }
+    }
+  }
 
   // A view-eligible reshape aliases its source's existing L1 slot, so it
   // consumes no fresh L1. Skip fit/CB-overlap checks that assume new allocation.
@@ -669,12 +881,18 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     return 0;
   }
 
-  auto speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+  // The first fit check already honours an input the op frees before its
+  // output (a 3x3 conv whose output takes the place of its input), otherwise
+  // a 553 KB output next to a 369 KB input it is about to free looks like a
+  // no-fit and the input is evicted to DRAM for nothing.
+  auto speculativeAddr = memoryTracker.wouldAllocateAt(
+      l1Size, /*transientPerCore=*/0, pendingFreedBefore, /*afterFree=*/false);
   if (!speculativeAddr) {
     SPILL_PROBE("  ACTION=NO_FIT pos={0} l1Size={1} occupied={2}", pos, l1Size,
                 memoryTracker.getOccupiedL1());
     l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
-    speculativeAddr = memoryTracker.wouldAllocateAt(l1Size);
+    speculativeAddr = memoryTracker.wouldAllocateAt(
+        l1Size, /*transientPerCore=*/0, pendingFreedBefore, /*afterFree=*/false);
   }
   if (l1Size > 0 && speculativeAddr) {
     // CB-zone eviction: make room for this op's full runtime L1 footprint.
@@ -788,29 +1006,77 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
     // Threshold = 40% × budget (530,261 B on WH N150) rejects the 589,824 B
     // Block A conv2d output while leaving smaller tensors (≤303,104 B) in L1.
     static constexpr double kMaxSingleTensorFraction = 0.40;
-    SPILL_PROBE("  LARGE_TENSOR_TEST pos={0} l1Size={1} threshold={2} fires={3}",
+    // A tensor consumed by the very next op only (last use at pos + 1) is
+    // not exposed to the fragmentation this guard protects against: no
+    // untracked allocation can happen between its producer and its consumer.
+    int64_t resultLastUse = -1;
+    for (Value r : op->getResults()) {
+      auto it = data.lastUsePositions.find(r);
+      if (it != data.lastUsePositions.end()) {
+        resultLastUse = std::max(resultLastUse, it->second);
+      }
+    }
+    bool shortLived =
+        !shortLivedExemptionDisabled() && resultLastUse == pos + 1;
+    SPILL_PROBE("  LARGE_TENSOR_TEST pos={0} l1Size={1} threshold={2} shortLived={3} fires={4}",
                 pos, l1Size,
                 static_cast<uint64_t>(kMaxSingleTensorFraction *
                                       static_cast<double>(l1BudgetPerCore)),
-                l1Size > static_cast<uint64_t>(kMaxSingleTensorFraction *
-                                               static_cast<double>(l1BudgetPerCore)));
-    if (l1Size > static_cast<uint64_t>(kMaxSingleTensorFraction *
+                shortLived,
+                !shortLived &&
+                    l1Size > static_cast<uint64_t>(
+                                 kMaxSingleTensorFraction *
+                                 static_cast<double>(l1BudgetPerCore)));
+    if (!shortLived &&
+        l1Size > static_cast<uint64_t>(kMaxSingleTensorFraction *
                                        static_cast<double>(l1BudgetPerCore))) {
       SPILL_PROBE("  ACTION=LARGE_TENSOR_FRAG pos={0} l1Size={1} budget={2}",
                   pos, l1Size, l1BudgetPerCore);
-      llvm::SmallVector<Value> toEvict;
-      for (Value operand : op->getOperands()) {
-        if (liveValues.count(operand) && !insertedReshardValues.count(operand)) {
-          toEvict.push_back(operand);
-        }
-      }
-      size_t largeTensorCampaignMin = SIZE_MAX;
-      for (Value victim : toEvict) {
-        evictValue(victim, pos, data, largeTensorCampaignMin);
-      }
+      // Only the oversized OUTPUT goes to DRAM. The op's L1 operands stay
+      // where they are: they are part of the footprint the op was validated
+      // with, and evicting them turned a single DRAM write into a DRAM round
+      // trip of the input as well (spill after the producer + the consumer
+      // reading it back from DRAM), e.g. a 3x3 conv whose 368 KB input was
+      // spilled and re-read only because its 553 KB output was too large.
+      // evictForDramCBGrowth below re-validates the DRAM-output program and
+      // evicts live tensors if its circular buffers grew.
       demoteToDram(op);
       evictForDramCBGrowth(op, pos, data, cbPeakUsage);
       return 0;
+    }
+    // The op's transient buffers (everything in l1BuffersPeakUsage beyond
+    // its own operands and output, e.g. a conv2d halo) need a contiguous
+    // region as well. The op-model allocates them in an empty L1 and cannot
+    // see fragmentation; the hardware allocator can refuse ("largest free
+    // block" smaller than the request) although the bytes are there.
+    // Peak = max(operands + transient, transient + output) when the op frees
+    // its input before allocating its output (conv2d deallocate_activation),
+    // so transient = peak - max(operands, output) is the safe estimate.
+    // An op that keeps its inputs holds inputs, transient and output at the
+    // peak, so its transient is peak - inputs - output.
+    uint64_t resident = opFreedInput(op)
+                            ? std::max(operandBytesInOccupied, l1Size)
+                            : operandBytesInOccupied + l1Size;
+    if (l1BuffersPeakUsage > resident) {
+      uint64_t transientBytes = l1BuffersPeakUsage - resident;
+      bool fitsNow = compactForTransientBuffers(op, pos, data, l1Size, transientBytes);
+      SPILL_PROBE("  TRANSIENT_TEST pos={0} transient={1} output={2} fits={3}", pos,
+                  transientBytes, l1Size, fitsNow);
+      // The output is placed while the transient buffers exist; remember
+      // them so the live-set allocation leaves the same hole above it.
+      pendingTransientBytes = transientModelDisabled() ? 0 : transientBytes;
+      speculativeAddr = memoryTracker.wouldAllocateAt(
+          l1Size, pendingTransientBytes, pendingFreedBefore,
+          pendingTransientAfterFree);
+      if (!speculativeAddr) {
+        l1Size = handleNoFit(op, pos, data, opL1Usage, l1Size);
+        speculativeAddr = memoryTracker.wouldAllocateAt(
+            l1Size, pendingTransientBytes, pendingFreedBefore,
+            pendingTransientAfterFree);
+        if (!speculativeAddr || l1Size == 0) {
+          return l1Size;
+        }
+      }
     }
     bool cbOverlap = wouldCBsOverlapTensors(op, pos, cbPeakUsage, *speculativeAddr);
     SPILL_PROBE("  CB_OVERLAP_TEST pos={0} cbPeak={1} addr={2} fires={3}", pos,
@@ -989,14 +1255,20 @@ bool L1SpillManagement<MemoryTracker>::replayFrom(size_t startIdx) {
     // a still-live tensor has no contiguous slot here (fragmentation). The
     // partial tracker is discarded by the next eviction's restore-from-min
     // (or, at terminal exhaustion, by failing the pass) — it is never trusted.
-    if (!memoryTracker.wouldAllocateAt(l1EventLog[i].sizePerCore)) {
+    if (!memoryTracker.wouldAllocateAt(l1EventLog[i].sizePerCore,
+                                       l1EventLog[i].transientPerCore,
+                                       l1EventLog[i].freedBefore,
+                                       l1EventLog[i].transientAfterFree)) {
       TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                    "Replay: no contiguous fit for {0} bytes",
                    l1EventLog[i].sizePerCore);
       return false;
     }
     memoryTracker.allocateAddress(l1EventLog[i].tensor,
-                                  l1EventLog[i].sizePerCore);
+                                  l1EventLog[i].sizePerCore,
+                                  l1EventLog[i].transientPerCore,
+                                  l1EventLog[i].freedBefore,
+                                  l1EventLog[i].transientAfterFree);
   }
   return true;
 }
@@ -1023,7 +1295,78 @@ bool L1SpillManagement<MemoryTracker>::evictValue(
                freedBytes);
   observer_->onEviction(victimOp, pos, freedBytes);
 
-  spillToDram(victim);
+  // Place the DRAM copy right after the victim's last already-scheduled
+  // consumer (position < pos) instead of right after the producer. Those
+  // consumers were validated with the L1 value and keep reading it; only the
+  // consumers at or after `pos` -- the ones the eviction is for -- read the
+  // DRAM copy. Spilling at the producer forced every earlier consumer onto a
+  // DRAM round trip (spill + reshard back to L1), e.g. a pool that follows
+  // its conv immediately while a far-away skip connection is the real reason
+  // the value is spilled. The L1 copy is still freed before `pos`, which is
+  // what the eviction needs.
+  Operation *insertSpillBefore = nullptr;
+  int64_t lastPastPos = -1;
+  for (Operation *user : victim.getUsers()) {
+    auto userPosIt = data.positionMap.find(user);
+    if (userPosIt == data.positionMap.end() || userPosIt->second >= pos ||
+        userPosIt->second <= lastPastPos) {
+      continue;
+    }
+    if (user->getBlock() != victimOp->getBlock() || !user->getNextNode()) {
+      continue;
+    }
+    lastPastPos = userPosIt->second;
+    insertSpillBefore = user->getNextNode();
+  }
+  SPILL_PROBE("  EVICT pos={0} victim={1} lastPastConsumerPos={2} spillAfterLastPast={3}",
+              pos, probeOpName(victimOp), lastPastPos, insertSpillBefore != nullptr);
+  // A convolution whose output is evicted right after it ran can write DRAM
+  // itself: that saves the reshard tt-metal does inside the op to reach the
+  // requested L1 grid before the separate copy. Only when the DRAM-output
+  // program needs no more circular buffers than the validated L1 one.
+  // A pointwise (1x1) conv2d runs as a sharded matmul; with an interleaved
+  // output tt-metal switches program and its circular buffers no longer match
+  // the op model's estimate (observed: 1.8 MB of CBs at runtime for a 611 KB
+  // estimate), so only convolutions with a spatial kernel are demoted.
+  auto isPointwiseConv = [](Operation *op) {
+    auto conv = mlir::dyn_cast<Conv2dOp>(op);
+    if (!conv) {
+      return false;
+    }
+    auto ks = conv.getKernelSize();
+    return ks.size() == 2 && ks[0] == 1 && ks[1] == 1;
+  };
+  bool demotedProducer = false;
+  if (!insertSpillBefore && victimOp && !producerDemoteDisabled() &&
+      mlir::isa<Conv2dOp, ConvTranspose2dOp>(victimOp) &&
+      !isPointwiseConv(victimOp) && victimOp->getNumResults() == 1 &&
+      data.positionMap.lookup(victimOp) == pos - 1) {
+    auto inputLayouts = utils::extractInputLayouts(victimOp);
+    auto l1Config = extractOpConfigFromIR(victimOp);
+    auto l1Result = op_constraint_validation::validateOperation(
+        victimOp, inputLayouts, l1Config, /*additionalL1Usage=*/0);
+    demoteToDram(victimOp);
+    auto dramConfig = extractOpConfigFromIR(victimOp);
+    auto dramResult = op_constraint_validation::validateOperation(
+        victimOp, inputLayouts, dramConfig, /*additionalL1Usage=*/0);
+    if (dramResult.isSuccess() &&
+        (!l1Result.isSuccess() ||
+         dramResult.cbPeakUsage <= l1Result.cbPeakUsage)) {
+      demotedProducer = true;
+      SPILL_PROBE("  ACTION=DEMOTE_PRODUCER pos={0} victim={1} cbL1={2} cbDram={3}",
+                  pos, probeOpName(victimOp), l1Result.cbPeakUsage,
+                  dramResult.cbPeakUsage);
+    } else {
+      victim.setType(tensorType);
+    }
+  }
+  if (demotedProducer) {
+    // Consumers read the DRAM result directly; nothing to insert.
+  } else if (insertSpillBefore) {
+    spillToDramImpl(victim, insertSpillBefore);
+  } else {
+    spillToDram(victim);
+  }
   memoryTracker.removeTensorFromSizes(victim);
 
   // Restore the original L1-sharded layout for consumers that need it:
@@ -1187,6 +1530,236 @@ bool L1SpillManagement<MemoryTracker>::evictValue(
 }
 
 //===----------------------------------------------------------------------===//
+// compactForTransientBuffers
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::compactForTransientBuffers(
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t outputL1Size,
+    uint64_t transientBytes) {
+  // Output and transient buffers both allocate top-down first-fit. They fit
+  // when each finds a block, and, if both land in the same free block (same
+  // block end), when that block holds both.
+  auto fits = [&]() {
+    if (pendingFreedBefore) {
+      // The transient buffers are allocated with the input still live; the
+      // output after the input is freed (and the transient re-placed when
+      // the op does that).
+      return memoryTracker.wouldAllocateAt(transientBytes).has_value() &&
+             memoryTracker
+                 .wouldAllocateAt(outputL1Size, transientBytes,
+                                  pendingFreedBefore,
+                                  pendingTransientAfterFree)
+                 .has_value();
+    }
+    auto outAddr = memoryTracker.wouldAllocateAt(outputL1Size);
+    auto trAddr = memoryTracker.wouldAllocateAt(transientBytes);
+    if (!outAddr || !trAddr) {
+      return false;
+    }
+    uint64_t outEnd = *outAddr + outputL1Size, trEnd = *trAddr + transientBytes;
+    uint64_t gap = outEnd > trEnd ? outEnd - trEnd : trEnd - outEnd;
+    if (gap < 64) {
+      return memoryTracker.wouldAllocateAt(outputL1Size + transientBytes)
+          .has_value();
+    }
+    return true;
+  };
+  uint64_t occupied = memoryTracker.getOccupiedL1();
+  if (pendingFreedBefore && memoryTracker.hasTensor(pendingFreedBefore)) {
+    // The freed input's bytes are available again for the output.
+    uint64_t freedSize = memoryTracker.getTensorSize(pendingFreedBefore);
+    occupied = occupied > freedSize ? occupied - freedSize : 0;
+  }
+  uint64_t freeBytes = l1BudgetPerCore > occupied ? l1BudgetPerCore - occupied : 0;
+  // The simulated addresses are only approximate (the hardware allocator
+  // sees the ops' internal buffers, this model does not), so a contiguous
+  // block in the model is no guarantee. Worst case, one live tensor sitting
+  // in the middle of the free space halves the largest block: when the
+  // transient buffers need more than half of the free bytes, compact.
+  bool riskySplit =
+      !liveValues.empty() && transientBytes * 2 + outputL1Size > freeBytes;
+  if (fits() && !riskySplit) {
+    return true;
+  }
+  SPILL_PROBE("  TRANSIENT_FRAG pos={0} op={1} transient={2} output={3} free={4} "
+              "trackedLowest={5} simFits={6} riskySplit={7}",
+              pos, probeOpName(op), transientBytes, outputL1Size, freeBytes,
+              memoryTracker.getLowestOccupiedAddress(), fits(), riskySplit);
+  if (freeBytes < outputL1Size + transientBytes) {
+    return false; // capacity, not fragmentation: the eviction paths handle it
+  }
+
+  // Candidates: the op's own L1 operands first, then every other live L1
+  // tensor (a reallocated tensor lands at the top of L1, so moving all of
+  // them leaves one contiguous free region below).
+  llvm::SmallVector<Value> candidates;
+  for (Value operand : op->getOperands()) {
+    if (liveValues.count(operand) && !llvm::is_contained(candidates, operand)) {
+      candidates.push_back(operand);
+    }
+  }
+  for (Value live : liveValues) {
+    if (!llvm::is_contained(candidates, live) &&
+        !insertedReshardValues.count(live)) {
+      candidates.push_back(live);
+    }
+  }
+  bool changed = false;
+  for (Value operand : candidates) {
+    uint64_t size = memoryTracker.getTensorSize(operand);
+    if (!reallocateLiveValue(op, pos, data, operand)) {
+      continue;
+    }
+    changed = true;
+    SPILL_PROBE("  ACTION=REALLOCATE pos={0} size={1} newLowest={2} fits={3}",
+                pos, size, memoryTracker.getLowestOccupiedAddress(), fits());
+    if (fits() && !riskySplit) {
+      break;
+    }
+  }
+  return changed && fits();
+}
+
+//===----------------------------------------------------------------------===//
+// reallocateLiveValue
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::reallocateLiveValue(Operation *op,
+                                                           int64_t pos,
+                                                           ScheduleData &data,
+                                                           Value operand) {
+  if (!liveValues.count(operand) || !memoryTracker.hasTensorAddress(operand)) {
+    return false;
+  }
+  auto tensorType = mlir::dyn_cast<RankedTensorType>(operand.getType());
+  if (!tensorType) {
+    return false;
+  }
+  Operation *defOp = operand.getDefiningOp();
+  if (!defOp || defOp->getBlock() != op->getBlock()) {
+    return false;
+  }
+  OpBuilder builder(op);
+  auto reallocOp = builder.create<ReallocateOp>(
+      ttmlir::utils::appendLocationSuffix(op->getLoc(), "_reallocate"),
+      tensorType, operand);
+  Value newVal = reallocOp.getResult();
+  // The op and every later user read the new buffer (ttnn::reallocate
+  // frees the old one); earlier users are untouched.
+  for (OpOperand &use : llvm::make_early_inc_range(operand.getUses())) {
+    Operation *user = use.getOwner();
+    if (user == reallocOp.getOperation()) {
+      continue;
+    }
+    if (user->getBlock() == op->getBlock() &&
+        !user->isBeforeInBlock(reallocOp.getOperation())) {
+      use.set(newVal);
+    }
+  }
+  // Simulation: free the old slot, place the new one top-down first-fit.
+  uint64_t size = memoryTracker.getTensorSize(operand);
+  l1EventLog.push_back({L1Event::kDealloc, operand, 0, /*skipped=*/false});
+  memoryTracker.removeTensor(operand);
+  liveValues.erase(operand);
+  allocEventIndex[newVal] = l1EventLog.size();
+  addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
+  l1EventLog.push_back({L1Event::kAlloc, newVal, size, /*skipped=*/false});
+  memoryTracker.addTensor(newVal, size);
+  liveValues.insert(newVal);
+  // The moved value dies where its last user runs. lastUsePositions keeps the
+  // numbering of the original schedule (only the relative order matters to
+  // liveSet), while deathSchedule is re-keyed after every schedule insertion
+  // and owns the freeing, so its key must come from the current positionMap:
+  // the stale number would file the value in a bucket that has already been
+  // processed and leave it live for the rest of the function.
+  int64_t lastUse = pos;
+  for (Operation *user : newVal.getUsers()) {
+    auto posIt = data.positionMap.find(user);
+    if (posIt != data.positionMap.end()) {
+      lastUse = std::max(lastUse, posIt->second);
+    }
+  }
+  data.lastUsePositions[newVal] = lastUse;
+  SPILL_PROBE("  REALLOC_LIVE pos={0} operand={1} lastUse={2}", pos,
+              probeOpName(defOp), lastUse);
+  // The old value's death entry (if any) is harmless: it is no longer live.
+  data.deathSchedule[lastUse].push_back(newVal);
+  liveSet.push({lastUse, newVal});
+  observer_->onEviction(defOp, pos, 0); // recorded as a placement change
+  if (pendingFreedBefore == operand) {
+    pendingFreedBefore = newVal; // the op now frees the moved tensor
+  }
+  // The moved tensor keeps its size entry under the new value; the old
+  // value's size entry is gone with removeTensor. Callers that log the
+  // size must read it before calling.
+  return true;
+}
+
+//===----------------------------------------------------------------------===//
+// compactForCBZone
+//===----------------------------------------------------------------------===//
+
+template <typename MemoryTracker>
+bool L1SpillManagement<MemoryTracker>::compactForCBZone(
+    Operation *op, int64_t pos, ScheduleData &data, uint64_t outputL1Size,
+    uint64_t cushionedCBUsage) {
+  auto clear = [&]() {
+    auto specAddr = memoryTracker.wouldAllocateAt(
+        outputL1Size, pendingTransientBytes, pendingFreedBefore,
+        pendingTransientAfterFree);
+    if (!specAddr) {
+      return false;
+    }
+    uint64_t effLowest =
+        std::min(*specAddr, memoryTracker.getLowestOccupiedAddress());
+    return cushionedCBUsage <= effLowest;
+  };
+  uint64_t occupied = memoryTracker.getOccupiedL1();
+  uint64_t freeBytes = l1BudgetPerCore > occupied ? l1BudgetPerCore - occupied : 0;
+  if (freeBytes < outputL1Size + pendingTransientBytes) {
+    return false; // capacity, not placement: the eviction path handles it
+  }
+  // Tensors below the CB top, the op's own operands first (they are read by
+  // the op whose program defines the CB region).
+  llvm::SmallVector<Value> candidates;
+  for (Value operand : op->getOperands()) {
+    if (liveValues.count(operand) && !llvm::is_contained(candidates, operand)) {
+      candidates.push_back(operand);
+    }
+  }
+  llvm::SmallVector<std::pair<uint64_t, Value>> inZone;
+  for (Value live : liveValues) {
+    auto addr = memoryTracker.getTensorAddress(live);
+    if (!addr || *addr >= cushionedCBUsage || llvm::is_contained(candidates, live) ||
+        insertedReshardValues.count(live)) {
+      continue;
+    }
+    inZone.emplace_back(*addr, live);
+  }
+  llvm::sort(inZone, [](const auto &a, const auto &b) { return a.first < b.first; });
+  for (auto &[addr, live] : inZone) {
+    candidates.push_back(live);
+  }
+  bool changed = false;
+  for (Value v : candidates) {
+    if (clear()) {
+      break;
+    }
+    uint64_t size =
+        memoryTracker.hasTensor(v) ? memoryTracker.getTensorSize(v) : 0;
+    if (!reallocateLiveValue(op, pos, data, v)) {
+      continue;
+    }
+    changed = true;
+    SPILL_PROBE("  ACTION=CB_ZONE_REALLOCATE pos={0} size={1} newLowest={2} clear={3}",
+                pos, size, memoryTracker.getLowestOccupiedAddress(), clear());
+  }
+  return changed && clear();
+}
+
+//===----------------------------------------------------------------------===//
 // insertReshardIntoSchedule
 //===----------------------------------------------------------------------===//
 
@@ -1344,6 +1917,29 @@ uint64_t L1SpillManagement<MemoryTracker>::handleFragmentation(
   // Add the same safety cushion as wouldCBsOverlapTensors to account for
   // unmodeled runtime fragmentation from transient internal op allocations.
   uint64_t cushionedCBUsage = cbPeakUsage + cbFragCushion;
+
+  // First choice: move the tensors that sit in the CB region to the top of
+  // L1 (ttnn.reallocate, ~10-20 us) instead of sending them to DRAM. This is
+  // the usual case after an op whose internal buffers left a hole above its
+  // output: the next output was pushed down into the CB region although L1
+  // is mostly empty.
+  if (!cbZoneCompactDisabled() &&
+      compactForCBZone(op, pos, data, outputL1Size, cushionedCBUsage)) {
+    SPILL_PROBE("  ACTION=CB_ZONE_COMPACTED pos={0} lowest={1}", pos,
+                memoryTracker.getLowestOccupiedAddress());
+    auto inputLayouts = utils::extractInputLayouts(op);
+    auto config = extractOpConfigFromIR(op);
+    auto freshResult = memoryTracker.validate(op, inputLayouts, config);
+    uint64_t freshL1 = freshResult.outputL1Usage;
+    if (freshResult.isSuccess() &&
+        (freshL1 == 0 ||
+         memoryTracker.wouldAllocateAt(freshL1, pendingTransientBytes,
+                                       pendingFreedBefore,
+                                       pendingTransientAfterFree))) {
+      applyOutputConfig(op, freshResult);
+      return freshL1;
+    }
+  }
 
   // Evict (farthest last-use first) until the output has a contiguous fit AND
   // the CB region no longer overlaps the lowest live tensor.
@@ -1639,8 +2235,15 @@ void L1SpillManagement<MemoryTracker>::run() {
         // Snapshot before allocation and record event for replay.
         allocEventIndex[val] = l1EventLog.size();
         addressSnapshots[l1EventLog.size()] = memoryTracker.takeSnapshot();
-        l1EventLog.push_back(
-            {L1Event::kAlloc, val, perResultL1, /*skipped=*/false});
+        uint64_t transient = pendingTransientBytes;
+        Value freedBefore = pendingFreedBefore;
+        bool afterFree = pendingTransientAfterFree;
+        pendingTransientBytes = 0; // only the first result carries them
+        pendingFreedBefore = Value();
+        pendingTransientAfterFree = false;
+        l1EventLog.push_back({L1Event::kAlloc, val, perResultL1,
+                              /*skipped=*/false, transient, freedBefore,
+                              afterFree});
 
         // View-eligible reshape: alias src's buffer instead of carving a
         // fresh slot. See `addTensorAtAddress`. Must stay in sync with the
@@ -1650,7 +2253,26 @@ void L1SpillManagement<MemoryTracker>::run() {
           memoryTracker.addTensorAtAddress(val, perResultL1,
                                            defOp->getOperand(0));
         } else {
-          memoryTracker.addTensor(val, perResultL1);
+          // The fit was checked with these parameters in ensureFitsL1, but
+          // evictions and compaction since then may have changed the free
+          // list. Degrade the model rather than abort: without the
+          // transient, then without the early free.
+          if (!memoryTracker.wouldAllocateAt(perResultL1, transient,
+                                             freedBefore, afterFree)) {
+            SPILL_PROBE("  ALLOC_FALLBACK pos={0} size={1} transient={2}",
+                        pos, perResultL1, transient);
+            transient = 0;
+            l1EventLog.back().transientPerCore = 0;
+            if (!memoryTracker.wouldAllocateAt(perResultL1, 0, freedBefore,
+                                               false)) {
+              freedBefore = Value();
+              l1EventLog.back().freedBefore = Value();
+            }
+            afterFree = false;
+            l1EventLog.back().transientAfterFree = false;
+          }
+          memoryTracker.addTensor(val, perResultL1, transient, freedBefore,
+                                  afterFree);
         }
 
         liveValues.insert(val);

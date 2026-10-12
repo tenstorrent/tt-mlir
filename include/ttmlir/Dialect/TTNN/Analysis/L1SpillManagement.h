@@ -55,7 +55,20 @@ struct SumL1MemoryTracker {
 
   uint64_t getOccupiedL1() const;
 
-  void addTensor(Value result, uint64_t l1SizePerCore);
+  /// `transientPerCore` models the op's internal buffers (a conv halo, a
+  /// DRAM-fed op's input shard copy): tt-metal allocates them before the
+  /// output and frees them when the op ends, so the output lands BELOW a
+  /// hole of that size. Later allocations that do not fit the hole are
+  /// pushed further down, towards the circular-buffer region.
+  /// `freedBefore`: an input the op frees before allocating its output
+  /// (conv2d deallocate_activation, pool deallocate_input). Its slot is
+  /// released first, so the output can take its place at the top of L1.
+  /// `transientAfterFree`: the op moves its transient buffers to the top of
+  /// L1 after freeing the input (conv2d reallocate_halo_output), so the
+  /// output is placed below a compacted transient instead of around a hole.
+  void addTensor(Value result, uint64_t l1SizePerCore,
+                 uint64_t transientPerCore = 0, Value freedBefore = Value(),
+                 bool transientAfterFree = false);
 
   /// Add `result` as an alias of `srcAtSameAddr`'s buffer (e.g. a
   /// `ttnn.reshape` that tt-metal realizes as a zero-copy view).
@@ -88,7 +101,10 @@ struct SumL1MemoryTracker {
   /// Speculative allocation query: returns the address where a tensor of the
   /// given size would be placed (top-down first-fit, 32-byte aligned), without
   /// actually allocating. Returns nullopt if no contiguous block fits.
-  std::optional<uint64_t> wouldAllocateAt(uint64_t l1SizePerCore) const;
+  std::optional<uint64_t>
+  wouldAllocateAt(uint64_t l1SizePerCore, uint64_t transientPerCore = 0,
+                  Value freedBefore = Value(),
+                  bool transientAfterFree = false) const;
 
   void logState() const;
 
@@ -131,7 +147,10 @@ struct SumL1MemoryTracker {
   ///
   /// HARD CONTRACT: the tensor MUST fit (asserts otherwise). Callers should
   /// pre-check with `wouldAllocateAt`.
-  void allocateAddress(Value result, uint64_t l1SizePerCore);
+  void allocateAddress(Value result, uint64_t l1SizePerCore,
+                       uint64_t transientPerCore = 0,
+                       Value freedBefore = Value(),
+                       bool transientAfterFree = false);
 
   /// Add `result` to `srcAtSameAddr`'s alias group at the same address
   /// slot. Bumps the group's refcount only — does not carve a new slot,
@@ -149,6 +168,8 @@ struct SumL1MemoryTracker {
   /// `hasTensor`, which checks `tensorSizes`. The two can disagree during
   /// replay (sizes is the original-pass state, addresses is being rebuilt).
   bool hasTensorAddress(Value result) const;
+  /// Simulated start address of `result`, if it holds an L1 address slot.
+  std::optional<uint64_t> getTensorAddress(Value result) const;
 
   /// Return all Values whose simulated start address is strictly above
   /// \p threshold.  Used to identify tensors that are in the CB-zone when the
@@ -161,6 +182,16 @@ struct SumL1MemoryTracker {
   size_t getTrackedCount() const { return tensorAddresses.size(); }
 
 private:
+  /// Return [start, end) to the free list, merging with neighbours.
+  void insertFreeBlock(uint64_t start, uint64_t end);
+  static void release(llvm::SmallVector<FreeBlock> &blocks, uint64_t start,
+                      uint64_t end);
+  /// Top-down first-fit lookup on `blocks`; returns the start address.
+  static std::optional<uint64_t>
+  findTopDown(const llvm::SmallVector<FreeBlock> &blocks, uint64_t alignedSize);
+  /// Remove [start, start + size) from `blocks` (must lie in one block).
+  static void carve(llvm::SmallVector<FreeBlock> &blocks, uint64_t start,
+                    uint64_t size);
   uint64_t currentOccupied = 0;
   llvm::DenseMap<Value, uint64_t> tensorSizes;
 
@@ -262,6 +293,15 @@ private:
     Value tensor;
     uint64_t sizePerCore; // meaningful for kAlloc only
     bool skipped = false; // set true when tensor is evicted
+    uint64_t transientPerCore = 0; // op-internal buffers freed after the op
+    Value freedBefore;             // input the op frees before its output
+    bool transientAfterFree = false; // transient re-placed after that free
+    L1Event(Kind k, Value t, uint64_t size, bool skip = false,
+            uint64_t transient = 0, Value freed = Value(),
+            bool afterFree = false)
+        : kind(k), tensor(t), sizePerCore(size), skipped(skip),
+          transientPerCore(transient), freedBefore(freed),
+          transientAfterFree(afterFree) {}
   };
 
   /// Ordered log of all L1 alloc/dealloc events during the sweep.
@@ -377,6 +417,46 @@ private:
   void insertReshardIntoSchedule(Operation *reshardOp, Value reshardResult,
                                  uint64_t reshardSizePerCore,
                                  int64_t consumerPos, ScheduleData &data);
+
+  /// The op's internal (transient) buffers -- a sharded conv2d's halo, for
+  /// example -- need a contiguous free region of `transientBytes` next to the
+  /// op's own output. When the simulated free list holds the bytes but not
+  /// the block, insert a ttnn.reallocate for the op's live L1 operands
+  /// (tt-metal allocates top-down, so re-allocating a tensor that sits in
+  /// the middle of L1 compacts the free space) and re-check. Returns true if
+  /// output and transient buffers fit afterwards.
+  bool compactForTransientBuffers(Operation *op, int64_t pos,
+                                  ScheduleData &data, uint64_t outputL1Size,
+                                  uint64_t transientBytes);
+
+  /// Insert a ttnn.reallocate for live value `v` right before `op`, rewire
+  /// `op` and every later user to the moved tensor and update the simulation
+  /// (old slot freed, new slot top-down first-fit). Returns false when `v`
+  /// cannot be moved (not address-tracked, defined in another block).
+  bool reallocateLiveValue(Operation *op, int64_t pos, ScheduleData &data,
+                           Value v);
+
+  /// A live tensor sits inside the region the op's circular buffers will
+  /// occupy (the simulated address is below cbPeak + cushion). When the free
+  /// bytes allow it, move such tensors (the op's own operands first) to the
+  /// top of L1 with ttnn.reallocate instead of sending them to DRAM. Returns
+  /// true when the CB region is clear afterwards.
+  bool compactForCBZone(Operation *op, int64_t pos, ScheduleData &data,
+                        uint64_t outputL1Size, uint64_t cushionedCBUsage);
+
+  /// Transient bytes of the op being placed (set by ensureFitsL1, consumed
+  /// when its results are added to the live set).
+  uint64_t pendingTransientBytes = 0;
+  /// Input the op being placed frees before allocating its output (if it is
+  /// tracked and dies at this op), see opFreedInput.
+  Value pendingFreedBefore;
+  /// The op re-places (moves) its transient buffers after freeing the input
+  /// (conv2d with reallocate_halo_output, the tt-metal default).
+  bool pendingTransientAfterFree = false;
+  /// The input an op frees inside its program before allocating its output
+  /// (conv2d / conv_transpose2d deallocate_activation, pool deallocate_input),
+  /// or a null Value.
+  static Value opFreedInput(Operation *op);
 
   /// Remove result tensors whose last use was the previous position.
   void processDeadTensors(int64_t pos, const ScheduleData &data);
