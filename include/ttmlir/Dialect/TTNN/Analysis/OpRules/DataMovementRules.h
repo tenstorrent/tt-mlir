@@ -107,13 +107,39 @@ struct ReshapeRuleBook : OpRuleBook {
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
+  /// Row-major input combinations: a reshape that is a view in row-major
+  /// (last dim unchanged) gets the NULL hint so it stays a view; a conv-front
+  /// permute (see permuteIsConvFront) gets a row-major L1 height-sharded
+  /// output in the sharding a height-sharded conv2d picks for the tensor.
+  std::vector<OpConfig> inputDerivedOutputHints(
+      Operation *op,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+  /// A return-tail permute (see permuteIsReturnTail) ranks its tiled outputs
+  /// below the row-major one: the host wants row-major, so the tiled result
+  /// would be untilized again on the way out.
+  LayoutScore adjustScore(Operation *op, LayoutScore base,
+                          const OpConfig &config,
+                          llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                          bool requiresReshard) const override;
 };
+
+/// True for a rank-4 `ttnn.permute` [0, 3, 1, 2] (NHWC -> NCHW) whose only
+/// user is the function return: fed row-major (untilized on its producer's
+/// shards) and written row-major to DRAM, it is the host's final layout, so the
+/// output untilize and the tiled transpose pair go away.
+bool permuteIsReturnTail(Operation *op);
 
 /// True for a `ttnn.reshape` that copies in TILE layout but is a free view in
 /// ROW_MAJOR (last dim unchanged, penultimate dims not tile-aligned) and whose
-/// every user is a permute: untilizing first turns copy + tiled permute into
-/// view + row-major permute.
+/// every user is a permute or a grid_sample (both read row-major): untilizing
+/// first turns copy + tiled consumer into view + row-major consumer.
 bool reshapePrefersRowMajorInput(Operation *op);
+
+/// True for a rank-4 `ttnn.permute` [0, 2, 3, 1] (NCHW -> NHWC) whose users are
+/// reshapes and conv2d ops: the row-major permute kernel can write straight
+/// into the conv's height shards, replacing tilize + tiled permute + padded
+/// reshape + shard.
+bool permuteIsConvFront(Operation *op);
 
 /// PadOp: non-sharded output only, no reshards.
 struct PadRuleBook : OpRuleBook {

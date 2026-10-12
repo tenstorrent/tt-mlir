@@ -310,6 +310,42 @@ private:
     if (dtype) {
       resultType = utils::RankedTensorTypeFactory::create(resultType, *dtype);
     }
+    // A (un)tilize that keeps an L1 sharding runs on the shards the tensor
+    // already has: keep their row count. The factory derives ceil(rows /
+    // cores), which for a row-major result of tile-aligned shards (160 rows
+    // on 58 cores for 9216 rows, say) would understate the shard by a row
+    // and turn the in-place untilize into a reshard.
+    auto currentEncoding =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(currentType.getEncoding());
+    auto resultEncoding =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(resultType.getEncoding());
+    if (currentEncoding && resultEncoding &&
+        currentEncoding.hasShardedL1TensorMemoryLayout() &&
+        resultEncoding.hasShardedL1TensorMemoryLayout()) {
+      llvm::SmallVector<int64_t> curShard =
+          currentEncoding.getScalarShardShape();
+      llvm::SmallVector<int64_t> resShard =
+          resultEncoding.getScalarShardShape();
+      if (curShard.size() == 2 && resShard.size() == 2 &&
+          curShard != resShard) {
+        llvm::SmallVector<int64_t> memrefShape = curShard;
+        if (auto tileType = mlir::dyn_cast<ttcore::TileType>(
+                resultEncoding.getElementType())) {
+          memrefShape[0] = llvm::divideCeil(curShard[0], tileType.getHeight());
+          memrefShape[1] = llvm::divideCeil(curShard[1], tileType.getWidth());
+        }
+        MemRefType memref = ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+            resultEncoding.getContext(), memrefShape,
+            resultEncoding.getElementType(), resultEncoding.getBufferType());
+        TTNNLayoutAttr kept = TTNNLayoutAttr::get(
+            resultEncoding.getContext(), resultEncoding.getLinear(),
+            resultEncoding.getGridShape(), memref,
+            resultEncoding.getMemLayout(), resultEncoding.getTensorMesh(),
+            resultEncoding.getIgnorePhysicalLayout(),
+            resultEncoding.getCoreRangeSet());
+        resultType = utils::RankedTensorTypeFactory::create(resultType, kept);
+      }
+    }
     return createOp<ttnn::ToLayoutOp>(rewriter, resultType, current);
   }
 

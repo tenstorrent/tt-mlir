@@ -4,6 +4,7 @@
 
 #ifdef TTMLIR_ENABLE_OPMODEL
 #include "ttmlir/OpModel/TTNN/Conversion.h"
+#include "llvm/Support/MathExtras.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
@@ -690,12 +691,43 @@ getLayoutAttrFromTensorSpec(MLIRContext *context,
         context, tensorSpec.memory_config().shard_spec().value().grid);
   }
 
-  return TTNNLayoutAttr::Builder(context, shape, elementType)
-      .setBufferType(bufferType)
-      .setMemoryLayout(memoryLayoutAttr)
-      .setGridShape(gridShape)
-      .setCoreRangeSet(coreRangeSet)
-      .build();
+  TTNNLayoutAttr layout = TTNNLayoutAttr::Builder(context, shape, elementType)
+                              .setBufferType(bufferType)
+                              .setMemoryLayout(memoryLayoutAttr)
+                              .setGridShape(gridShape)
+                              .setCoreRangeSet(coreRangeSet)
+                              .build();
+
+  // Keep the shard shape the tensor really has. The builder derives
+  // ceil(rows / cores) per core, which differs from the spec when the shards
+  // were chosen explicitly (a row-major tensor on tile-aligned shards, e.g.
+  // 9216 rows on 58 cores as 160-row shards, not 159): a layout that
+  // understates the shard makes the next op reshard a tensor that already
+  // sits where it wants it.
+  if (tensorSpec.memory_config().is_sharded() &&
+      tensorSpec.memory_config().shard_spec().has_value()) {
+    const auto &specShape =
+        tensorSpec.memory_config().shard_spec().value().shape;
+    llvm::SmallVector<int64_t> scalarShard = layout.getScalarShardShape();
+    if (scalarShard.size() == 2 &&
+        (scalarShard[0] != static_cast<int64_t>(specShape[0]) ||
+         scalarShard[1] != static_cast<int64_t>(specShape[1]))) {
+      llvm::SmallVector<int64_t> shardShape = {
+          static_cast<int64_t>(specShape[0]),
+          static_cast<int64_t>(specShape[1])};
+      if (auto tileType = mlir::dyn_cast<ttcore::TileType>(elementType)) {
+        shardShape[0] = llvm::divideCeil(shardShape[0], tileType.getHeight());
+        shardShape[1] = llvm::divideCeil(shardShape[1], tileType.getWidth());
+      }
+      MemRefType memref = ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+          context, shardShape, layout.getElementType(), layout.getBufferType());
+      layout = TTNNLayoutAttr::get(
+          context, layout.getLinear(), layout.getGridShape(), memref,
+          layout.getMemLayout(), layout.getTensorMesh(),
+          layout.getIgnorePhysicalLayout(), layout.getCoreRangeSet());
+    }
+  }
+  return layout;
 }
 
 std::optional<::ttnn::operations::transformer::SDPAProgramConfig>

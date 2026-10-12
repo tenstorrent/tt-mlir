@@ -2,6 +2,7 @@ set(OPRULES_SRCS
     ConvRules.cpp
     DataMovementRules.cpp
     EmbeddingRules.cpp
+    GridSampleRules.cpp
     MatmulRules.cpp
     MoeRules.cpp
     NormalizationRules.cpp

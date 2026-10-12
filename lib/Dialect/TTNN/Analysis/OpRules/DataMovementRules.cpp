@@ -3,10 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
+#include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/LayoutFilterUtils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Utils.h"
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 
@@ -400,11 +405,167 @@ bool reshapePrefersRowMajorInput(Operation *op) {
       inShape.back() != outShape.back()) {
     return false;
   }
-  // Only when every user is a permute: a tiled consumer would need the
-  // tensor re-tilized, which costs more than the copy saved here.
+  // Only when every user reads row-major (a permute, or a grid_sample whose
+  // kernel is row-major only): a tiled consumer would need the tensor
+  // re-tilized, which costs more than the copy saved here.
   return !reshape->use_empty() &&
-         llvm::all_of(reshape->getUsers(),
-                      [](Operation *user) { return isa<PermuteOp>(user); });
+         llvm::all_of(reshape->getUsers(), [](Operation *user) {
+           return isa<PermuteOp>(user) ||
+                  (isa<GridSampleOp>(user) &&
+                   !optRuleDisabled("reshape_rm_gridsample"));
+         });
+}
+
+bool permuteIsConvFront(Operation *op) {
+  auto permute = mlir::dyn_cast_or_null<PermuteOp>(op);
+  if (!permute || optRuleDisabled("permute_rm_front")) {
+    return false;
+  }
+  auto perm = permute.getPermutation();
+  if (perm.size() != 4 || perm[0] != 0 || perm[1] != 2 || perm[2] != 3 ||
+      perm[3] != 1) {
+    return false;
+  }
+  return !permute->use_empty() &&
+         llvm::all_of(permute->getUsers(), [](Operation *user) {
+           return isa<ReshapeOp, Conv2dOp>(user);
+         });
+}
+
+bool permuteIsReturnTail(Operation *op) {
+  auto permute = mlir::dyn_cast_or_null<PermuteOp>(op);
+  if (!permute || optRuleDisabled("permute_rm_tail")) {
+    return false;
+  }
+  auto perm = permute.getPermutation();
+  if (perm.size() != 4 || perm[0] != 0 || perm[1] != 3 || perm[2] != 1 ||
+      perm[3] != 2) {
+    return false;
+  }
+  // The row-major input is untilized on its producer's shards: its sticks
+  // (the last dim) must stay aligned, which a tile-width multiple guarantees.
+  // A narrower last dim (a 12-channel output, say) is left to the tiled path
+  // and the output untilize with unpadding.
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(permute.getInput().getType());
+  if (!inputType || inputType.getRank() < 2 ||
+      inputType.getShape().back() % TILE_WIDTH != 0) {
+    return false;
+  }
+  return !permute->use_empty() &&
+         llvm::all_of(permute->getUsers(), [](Operation *user) {
+           return isa<func::ReturnOp>(user);
+         });
+}
+
+/// Row-major L1 height-sharded layout of `type` on the canonical core
+/// placement with the shard height a height-sharded conv2d picks for the
+/// tensor: ceil(rows / cores) rounded up to a tile, cores = ceil(rows /
+/// shard height). Null when the device is unknown or the tensor is too small.
+static TTNNLayoutAttr convHeightShardedRowMajorLayout(Operation *op,
+                                                      RankedTensorType type,
+                                                      TTNNLayoutAttr like) {
+  ttcore::DeviceAttr deviceAttr = ttcore::lookupDevice(op);
+  if (!deviceAttr || type.getRank() < 2) {
+    return nullptr;
+  }
+  llvm::ArrayRef<int64_t> shape = type.getShape();
+  int64_t rows = 1;
+  for (size_t i = 0; i + 1 < shape.size(); ++i) {
+    rows *= shape[i];
+  }
+  int64_t workerVolume =
+      ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
+  if (rows < TILE_HEIGHT || workerVolume < 1) {
+    return nullptr;
+  }
+  int64_t shardH = llvm::divideCeil(llvm::divideCeil(rows, workerVolume),
+                                    static_cast<int64_t>(TILE_HEIGHT)) *
+                   TILE_HEIGHT;
+  int64_t cores = llvm::divideCeil(rows, shardH);
+  Type rmElementType = ttnn::utils::getElementType(
+      like.getContext(), Layout::RowMajor, like.getDataType());
+  TTNNLayoutAttr rm = TTNNLayoutAttr::Builder(like, shape)
+                          .setElementType(rmElementType)
+                          .setBufferType(BufferType::L1)
+                          .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+                          .setGridShape({cores, 1})
+                          .setCoreRangeSet(CoreRangeSetAttr())
+                          .buildWithCanonicalCorePlacement(deviceAttr);
+  llvm::SmallVector<int64_t> rmShard = rm.getShardShape();
+  if (rmShard.size() != 2) {
+    return nullptr;
+  }
+  if (rmShard[0] == shardH) {
+    return rm;
+  }
+  rmShard[0] = shardH;
+  MemRefType memref = ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+      rm.getContext(), rmShard, rm.getElementType(), rm.getBufferType());
+  return TTNNLayoutAttr::get(rm.getContext(), rm.getLinear(), rm.getGridShape(),
+                             memref, rm.getMemLayout(), rm.getTensorMesh(),
+                             rm.getIgnorePhysicalLayout(),
+                             rm.getCoreRangeSet());
+}
+
+std::vector<OpConfig> ReshapeRuleBook::inputDerivedOutputHints(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.empty() || !inputLayouts[0] ||
+      inputLayouts[0].getLayout() != Layout::RowMajor) {
+    return {};
+  }
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(op->getOperand(0).getType());
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!inputType || !outputType || inputType.getRank() == 0 ||
+      outputType.getRank() == 0) {
+    return {};
+  }
+  if (isa<ReshapeOp>(op)) {
+    // The reshape behind a conv-front permute, fed row-major with the last
+    // dim unchanged, is a view: the NULL hint keeps the input's sharding (the
+    // static hints are tiled interleaved configs that would copy the tensor
+    // out of its shards). Other reshapes keep their own rules.
+    if (inputType.getShape().back() == outputType.getShape().back() &&
+        permuteIsConvFront(op->getOperand(0).getDefiningOp())) {
+      return {OpConfig(TTNNLayoutAttr())};
+    }
+    return {};
+  }
+  if (permuteIsReturnTail(op)) {
+    // Row-major straight to DRAM: the layout the host reads.
+    Type rmElementType = ttnn::utils::getElementType(
+        op->getContext(), Layout::RowMajor, inputLayouts[0].getDataType());
+    TTNNLayoutAttr dram =
+        TTNNLayoutAttr::Builder(inputLayouts[0], outputType.getShape())
+            .setElementType(rmElementType)
+            .setBufferType(BufferType::DRAM)
+            .setMemoryLayout(TensorMemoryLayout::Interleaved)
+            .build();
+    return {OpConfig(dram)};
+  }
+  if (!permuteIsConvFront(op)) {
+    return {};
+  }
+  TTNNLayoutAttr derived =
+      convHeightShardedRowMajorLayout(op, outputType, inputLayouts[0]);
+  if (!derived) {
+    return {};
+  }
+  return {OpConfig(derived)};
+}
+
+LayoutScore
+ReshapeRuleBook::adjustScore(Operation *op, LayoutScore base,
+                             const OpConfig &config,
+                             llvm::ArrayRef<TTNNLayoutAttr> /*inputLayouts*/,
+                             bool /*requiresReshard*/) const {
+  if (permuteIsReturnTail(op) && config.outputLayout &&
+      config.outputLayout.isTiled()) {
+    base.costClass = 1;
+  }
+  return base;
 }
 
 LayoutFilterFn
@@ -431,7 +592,10 @@ ReshapeRuleBook::getInputLayoutFilter(Operation *op,
 
 bool ReshapeRuleBook::generatesRowMajorInputSiblings(
     Operation *op, unsigned operandIdx) const {
-  return operandIdx == 0 && reshapePrefersRowMajorInput(op);
+  // The conv-front permute keeps its tiled candidates as well: the row-major
+  // ones only win when the sharded row-major output validates.
+  return operandIdx == 0 && (reshapePrefersRowMajorInput(op) ||
+                             permuteIsConvFront(op) || permuteIsReturnTail(op));
 }
 
 bool ReshapeRuleBook::shouldExploreReshards() const { return false; }

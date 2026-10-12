@@ -6,6 +6,7 @@
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/DataMovementRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/EmbeddingRules.h"
+#include "ttmlir/Dialect/TTNN/Analysis/OpRules/GridSampleRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MatmulRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/MoeRules.h"
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/NormalizationRules.h"
@@ -88,6 +89,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
   static PagedFillCacheRuleBook pagedFillCache;
   static PagedUpdateCacheRuleBook pagedUpdateCache;
   static ArgMaxRuleBook argMax;
+  static GridSampleRuleBook gridSample;
 
   static llvm::DenseMap<mlir::OperationName, const OpRuleBook *> registry;
   static std::once_flag initFlag;
@@ -131,6 +133,7 @@ const OpRuleBook &getRuleBook(Operation *op) {
     reg(PagedFillCacheOp::getOperationName(), &pagedFillCache);
     reg(PagedUpdateCacheOp::getOperationName(), &pagedUpdateCache);
     reg(ArgMaxOp::getOperationName(), &argMax);
+    reg(GridSampleOp::getOperationName(), &gridSample);
   });
   auto it = registry.find(op->getName());
   return it != registry.end() ? *it->second : defaultRules;
