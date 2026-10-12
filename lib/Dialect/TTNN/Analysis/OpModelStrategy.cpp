@@ -18,7 +18,7 @@ bool shouldExploreReshards(Operation *op) {
 }
 
 bool generatesRowMajorInputSiblings(Operation *op, unsigned operandIdx) {
-  return getRuleBook(op).generatesRowMajorInputSiblings(operandIdx);
+  return getRuleBook(op).generatesRowMajorInputSiblings(op, operandIdx);
 }
 
 //--- Scoring ---
@@ -32,6 +32,11 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
   // 2. Sharded > Interleaved.
   if (isSharded != other.isSharded) {
     return isSharded;
+  }
+
+  // 2b. Lower op-specific cost class (see LayoutScore::costClass).
+  if (costClass != other.costClass) {
+    return costClass < other.costClass;
   }
 
   // 3. Less DRAM input transfer > more DRAM input transfer.
@@ -55,6 +60,7 @@ bool LayoutScore::operator>(const LayoutScore &other) const {
 
 bool LayoutScore::operator==(const LayoutScore &other) const {
   return isL1 == other.isL1 && isSharded == other.isSharded &&
+         costClass == other.costClass &&
          inputDramBytes == other.inputDramBytes &&
          requiresReshard == other.requiresReshard &&
          coreCount == other.coreCount && outputL1Usage == other.outputL1Usage;

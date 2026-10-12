@@ -28,9 +28,62 @@
 #include "llvm/ADT/DenseSet.h"
 
 #include <algorithm>
+#include <cstdlib>
 #include <map>
 
+#include "llvm/Support/FormatVariadic.h"
+#include "llvm/Support/raw_ostream.h"
+
 namespace mlir::tt::ttnn {
+
+// Release-build probe (TTMLIR_TRACE/DEBUG compile out in Release): prints the
+// candidates the beam search evaluates for an op and what it keeps.
+// TTMLIR_LAYOUT_PROBE=<substring> matches "<op name> <loc name>"; "all"
+// matches every op.
+static std::string probeOpLabel(Operation *op) {
+  std::string label = op->getName().getStringRef().str();
+  if (auto nameLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
+    label += " @";
+    label += nameLoc.getName().str();
+  }
+  return label;
+}
+static bool layoutProbeMatches(Operation *op) {
+  static const char *pattern = std::getenv("TTMLIR_LAYOUT_PROBE");
+  if (!pattern) {
+    return false;
+  }
+  llvm::StringRef pat(pattern);
+  if (pat == "all" || pat == "1") {
+    return true;
+  }
+  return llvm::StringRef(probeOpLabel(op)).contains(pat);
+}
+// Hint string for the probe: layout plus the conv2d config when present.
+static std::string probeHintString(const OpConfig &cfg) {
+  std::string out = cfg.toCompactString();
+  if (const auto *attrs = std::get_if<Conv2dAttrs>(&cfg.opSpecificAttrs)) {
+    if (attrs->conv2dConfig && *attrs->conv2dConfig) {
+      std::string c;
+      llvm::raw_string_ostream(c) << *attrs->conv2dConfig;
+      out += " cfg=" + c;
+    }
+  }
+  return out;
+}
+static bool returnDramOutputDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("return_dram_output");
+  }();
+  return disabled;
+}
+#define LAYOUT_PROBE(op, ...)                                                  \
+  do {                                                                         \
+    if (layoutProbeMatches(op)) {                                              \
+      llvm::errs() << "[LAYOUT_PROBE] " << llvm::formatv(__VA_ARGS__) << "\n"; \
+    }                                                                          \
+  } while (0)
 
 MemoryLayoutPropagation::MemoryLayoutPropagation(
     func::FuncOp func,
@@ -86,7 +139,11 @@ static TTNNLayoutAttr getOutputLayoutForResult(const BeamCandidate &c,
 /// Returns nullptr when no filtering is needed (all layouts accepted).
 /// Delegates to per-op rule files via OpRuleBook.
 static LayoutFilterFn getInputLayoutFilter(Operation *op, unsigned operandIdx) {
-  return getRuleBook(op).getInputLayoutFilter(operandIdx);
+  return getRuleBook(op).getInputLayoutFilter(op, operandIdx);
+}
+
+static bool generatesTiledInputSiblings(Operation *op, unsigned operandIdx) {
+  return getRuleBook(op).generatesTiledInputSiblings(op, operandIdx);
 }
 
 /// Returns true if the operand is already "constant" from the optimizer's
@@ -135,6 +192,103 @@ static TTNNLayoutAttr getRowMajorSibling(TTNNLayoutAttr tiledLayout,
       .setMemoryLayout(TensorMemoryLayout::Interleaved)
       .setElementType(rmElementType)
       .build();
+}
+
+/// Build the L1 height-sharded ROW_MAJOR sibling of an L1 height-sharded tiled
+/// candidate: same grid and core placement, so the untilize runs shard-local
+/// and the row-major tensor stays on the cores. The shard keeps the tiled
+/// shard's row count (a tile multiple) instead of the builder's
+/// ceil(rows / cores). Returns null for anything but an L1 height-sharded
+/// tiled layout.
+static TTNNLayoutAttr
+getRowMajorShardedSibling(TTNNLayoutAttr tiledLayout,
+                          llvm::ArrayRef<int64_t> tensorShape) {
+  if (!tiledLayout.isTiled() || !tiledLayout.hasL1BufferType() ||
+      !tiledLayout.getMemLayout() ||
+      tiledLayout.getMemLayout().getValue() !=
+          TensorMemoryLayout::HeightSharded ||
+      !tiledLayout.getCoreRangeSet()) {
+    return nullptr;
+  }
+  llvm::SmallVector<int64_t> tiledShard = tiledLayout.getScalarShardShape();
+  if (tiledShard.size() != 2) {
+    return nullptr;
+  }
+  Type rmElementType = ttnn::utils::getElementType(
+      tiledLayout.getContext(), Layout::RowMajor, tiledLayout.getDataType());
+  TTNNLayoutAttr rm = TTNNLayoutAttr::Builder(tiledLayout, tensorShape)
+                          .setElementType(rmElementType)
+                          .build();
+  llvm::SmallVector<int64_t> rmShard = rm.getShardShape();
+  if (rmShard.size() != 2) {
+    return nullptr;
+  }
+  if (rmShard[0] == tiledShard[0]) {
+    return rm;
+  }
+  rmShard[0] = tiledShard[0];
+  MemRefType memref = ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+      rm.getContext(), rmShard, rm.getElementType(), rm.getBufferType());
+  return TTNNLayoutAttr::get(rm.getContext(), rm.getLinear(), rm.getGridShape(),
+                             memref, rm.getMemLayout(), rm.getTensorMesh(),
+                             rm.getIgnorePhysicalLayout(),
+                             rm.getCoreRangeSet());
+}
+
+static bool rmShardedSiblingDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("rm_sharded_sibling");
+  }();
+  return disabled;
+}
+
+/// Build the tiled sibling of a ROW_MAJOR L1 height-sharded candidate: the
+/// same dtype in TILE layout, kept in L1 and height-sharded. When the
+/// row-major shard height is not a tile multiple, tilizing in place would pad
+/// every shard and leave cores without data (consumers reject such layouts),
+/// so the sibling uses the smallest grid whose tile-aligned shard height
+/// covers the tensor; the retile is then a reshard followed by a shard-local
+/// tilize. Returns null when the candidate is already tiled or not L1
+/// height-sharded.
+static TTNNLayoutAttr getTiledSibling(TTNNLayoutAttr rmLayout,
+                                      llvm::ArrayRef<int64_t> tensorShape,
+                                      ttcore::DeviceAttr deviceAttr) {
+  if (rmLayout.isTiled() || !rmLayout.hasL1BufferType() ||
+      !rmLayout.getMemLayout() ||
+      rmLayout.getMemLayout().getValue() != TensorMemoryLayout::HeightSharded ||
+      tensorShape.size() < 2) {
+    return nullptr;
+  }
+  llvm::SmallVector<int64_t> shardShape = rmLayout.getShardShape();
+  if (shardShape.size() != 2 || shardShape[0] <= 0) {
+    return nullptr;
+  }
+  int64_t rows = 1;
+  for (size_t i = 0; i + 1 < tensorShape.size(); ++i) {
+    rows *= tensorShape[i];
+  }
+  // A tensor whose row count is not a tile multiple cannot be tilized on
+  // the shards without padding; leave those to the interleaved path.
+  if (rows % TILE_HEIGHT != 0 || tensorShape.back() % TILE_WIDTH != 0) {
+    return nullptr;
+  }
+  int64_t alignedShardH =
+      llvm::divideCeil(shardShape[0], static_cast<int64_t>(TILE_HEIGHT)) *
+      TILE_HEIGHT;
+  int64_t numCores = llvm::divideCeil(rows, alignedShardH);
+  int64_t workerVolume =
+      ttmlir::utils::volume(deviceAttr.getWorkerGrid().getShape());
+  if (numCores < 1 || numCores > workerVolume) {
+    return nullptr;
+  }
+  Type tileElementType = ttnn::utils::getElementType(
+      rmLayout.getContext(), Layout::Tile, rmLayout.getDataType());
+  return TTNNLayoutAttr::Builder(rmLayout, tensorShape)
+      .setElementType(tileElementType)
+      .setGridShape({numCores, 1})
+      .setCoreRangeSet(CoreRangeSetAttr())
+      .buildWithCanonicalCorePlacement(deviceAttr);
 }
 
 /// Compute total bytes transferred from DRAM across all inputs.
@@ -206,6 +360,14 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
 
     observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/true,
                            &candidate, /*failureReason=*/"");
+    LAYOUT_PROBE(op,
+                 "VALID  {0} hint[{1}]={2} score(L1={3},sharded={4},cores={5},"
+                 "reshard={6},dramIn={7},l1use={8}) inputs=[{9}]",
+                 probeOpLabel(op), hintIdx, probeHintString(hint),
+                 candidate.score.isL1, candidate.score.isSharded,
+                 candidate.score.coreCount, candidate.score.requiresReshard,
+                 candidate.score.inputDramBytes, candidate.score.outputL1Usage,
+                 formatInputLayouts(inputLayouts));
 
     return candidate;
   }
@@ -220,6 +382,9 @@ std::optional<BeamCandidate> MemoryLayoutPropagation::evaluateHint(
 
   observer->onEvaluation(op, hint, hintIdx, inputLayouts, /*valid=*/false,
                          /*candidate=*/nullptr, result.errorMessage);
+  LAYOUT_PROBE(op, "FAILED {0} hint[{1}]={2} reshard={3} inputs=[{4}] error={5}",
+               probeOpLabel(op), hintIdx, probeHintString(hint), anyReshard,
+               formatInputLayouts(inputLayouts), result.errorMessage);
 
   return std::nullopt;
 }
@@ -550,6 +715,25 @@ MemoryLayoutPropagation::processOp(Operation *op) {
       }
     }
 
+    // Hints the rule book derives from this concrete input combination (e.g.
+    // a slice keeping its input's sharding). Index them past the static hints.
+    {
+      std::vector<OpConfig> derived =
+          ruleBook.inputDerivedOutputHints(op, inputLayouts);
+      for (size_t di = 0; di < derived.size(); ++di) {
+        LAYOUT_PROBE(op, "DERIVED {0} hint={1} inputs=[{2}]", probeOpLabel(op),
+                     derived[di].toCompactString(),
+                     formatInputLayouts(inputLayouts));
+        if (tryHint(derived[di],
+                    outputHints.hints.size() + outputHints.fallbackHints.size() +
+                        di,
+                    inputLayouts, anyReshard, producerCandidateIndices,
+                    reshardLayouts)) {
+          gotSharded = true;
+        }
+      }
+    }
+
     // Try fallback hints only if primary didn't produce a sharded result.
     if (!gotSharded && !outputHints.fallbackHints.empty()) {
       TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
@@ -586,6 +770,26 @@ MemoryLayoutPropagation::processOp(Operation *op) {
                      return preferCandidate(op, a, b);
                    });
 
+  // An op whose every user is the function return gets its result copied to
+  // DRAM anyway (insertReturnDramSpills). Writing DRAM directly saves that
+  // copy, so prefer non-L1 outputs here when the backend offers one.
+  // TTMLIR_OPT_DISABLE=return_dram_output restores the plain ranking.
+  if (!candidates.empty() && !op->use_empty() &&
+      llvm::all_of(op->getUsers(),
+                   [](Operation *u) { return isa<func::ReturnOp>(u); }) &&
+      !returnDramOutputDisabled()) {
+    std::stable_partition(candidates.begin(), candidates.end(),
+                          [](const BeamCandidate &c) {
+                            return c.configHint.outputLayout &&
+                                   !c.configHint.outputLayout.hasL1BufferType();
+                          });
+    LAYOUT_PROBE(op, "RETURN {0}: DRAM output preferred ({1})",
+                 probeOpLabel(op),
+                 candidates.front().configHint.outputLayout
+                     ? probeHintString(candidates.front().configHint)
+                     : std::string("<none>"));
+  }
+
   if (candidates.size() > beamWidth) {
     candidates.resize(beamWidth);
   }
@@ -611,10 +815,29 @@ MemoryLayoutPropagation::processOp(Operation *op) {
     }
   }
 
+  for (size_t ci = 0; ci < candidates.size(); ++ci) {
+    const auto &c = candidates[ci];
+    LAYOUT_PROBE(op, "BEAM[{0}] {1}: {2} score(L1={3},sharded={4},cores={5},"
+                     "reshard={6},dramIn={7},l1use={8}) inputs=[{9}]",
+                 ci, probeOpLabel(op),
+                 c.configHint.outputLayout ? probeHintString(c.configHint)
+                                           : std::string("<no output>"),
+                 c.score.isL1, c.score.isSharded, c.score.coreCount,
+                 c.score.requiresReshard, c.score.inputDramBytes,
+                 c.score.outputL1Usage, formatInputLayouts(c.inputLayouts));
+  }
+  LAYOUT_PROBE(op, "SETUP  {0}: {1} input sets, {2} hints + {3} fallback hints, "
+                   "{4} valid candidates",
+               probeOpLabel(op), inputCandidateSets.size(),
+               outputHints.hints.size(), outputHints.fallbackHints.size(),
+               candidates.size());
+
   bool usedDramFallback = false;
 
   // Fallback: if no valid candidate found, use DRAM interleaved.
   if (candidates.empty()) {
+    LAYOUT_PROBE(op, "FALLBACK {0}: no valid candidate, DRAM interleaved",
+                 probeOpLabel(op));
     TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
                  "No valid candidate for op {0} @{1}, falling back to DRAM "
                  "interleaved.",
@@ -988,9 +1211,48 @@ MemoryLayoutPropagation::getInputCandidateSets(Operation *op) {
           rmIc.isReshard = true;
           rmSiblings.push_back(rmIc);
         }
+        // An L1 height-sharded tiled candidate also gets a sibling that
+        // untilizes on its own shards (no DRAM round trip).
+        if (ic.isReshard || rmShardedSiblingDisabled()) {
+          continue;
+        }
+        if (TTNNLayoutAttr rmSharded = getRowMajorShardedSibling(
+                ic.layout, tensorType.getShape())) {
+          InputCandidate rmIc;
+          rmIc.layout = rmSharded;
+          rmIc.producerCandidateIndex = ic.producerCandidateIndex;
+          rmIc.isReshard = true;
+          rmSiblings.push_back(rmIc);
+          LAYOUT_PROBE(op, "RM_SHARDED_SIBLING {0} operand {1}: {2} -> {3}",
+                       probeOpLabel(op), operandIdx, ic.layout, rmSharded);
+        }
       }
       candidatesForOperand.insert(candidatesForOperand.end(),
                                   rmSiblings.begin(), rmSiblings.end());
+    }
+
+    // Tiled input siblings: clone each row-major L1 height-sharded producer
+    // candidate into a tiled sibling (isReshard=true) on a tile-aligned shard
+    // grid for ops that need a TILE input (see generatesTiledInputSiblings).
+    if (generatesTiledInputSiblings(op, operandIdx)) {
+      std::vector<InputCandidate> tiledSiblings;
+      for (const auto &ic : candidatesForOperand) {
+        if (ic.isReshard) {
+          continue;
+        }
+        if (TTNNLayoutAttr tiledLayout =
+                getTiledSibling(ic.layout, tensorType.getShape(), deviceAttr)) {
+          InputCandidate tiledIc;
+          tiledIc.layout = tiledLayout;
+          tiledIc.producerCandidateIndex = ic.producerCandidateIndex;
+          tiledIc.isReshard = true;
+          tiledSiblings.push_back(tiledIc);
+          LAYOUT_PROBE(op, "TILED_SIBLING {0} operand {1}: {2} -> {3}",
+                       probeOpLabel(op), operandIdx, ic.layout, tiledLayout);
+        }
+      }
+      candidatesForOperand.insert(candidatesForOperand.end(),
+                                  tiledSiblings.begin(), tiledSiblings.end());
     }
 
     // Filter after all candidates (producer beam + reshards) are collected.
@@ -1493,13 +1755,32 @@ void MemoryLayoutPropagation::insertReshardOp(Operation *consumerOp,
   Type reshardElementType = ttnn::utils::getElementType(
       reshardLayout.getContext(), reshardLayout.getLayout(),
       reshardLayout.getDataType());
+  TTNNLayoutAttr::Builder outputBuilder(producerLayout,
+                                        producerTensorType.getShape());
+  outputBuilder.setBufferType(reshardLayout.getBufferType())
+      .setMemoryLayout(reshardLayout.getMemLayout())
+      .setGridShape(reshardLayout.getGridShape())
+      .setElementType(reshardElementType);
+  // A sharded reshard target carries its own core placement (its grid may
+  // differ from the producer's); the builder would otherwise keep the
+  // producer's core range set for the new grid.
+  if (reshardLayout.getMemLayout() &&
+      isShardedMemoryLayout(reshardLayout.getMemLayout().getValue()) &&
+      reshardLayout.getCoreRangeSet()) {
+    outputBuilder.setCoreRangeSet(reshardLayout.getCoreRangeSet());
+  }
   TTNNLayoutAttr outputLayout =
-      TTNNLayoutAttr::Builder(producerLayout, producerTensorType.getShape())
-          .setBufferType(reshardLayout.getBufferType())
-          .setMemoryLayout(reshardLayout.getMemLayout())
-          .setGridShape(reshardLayout.getGridShape())
-          .setElementType(reshardElementType)
-          .buildWithCanonicalCorePlacement(deviceAttr);
+      outputBuilder.buildWithCanonicalCorePlacement(deviceAttr);
+  // A sharded target whose shard shape was chosen explicitly (sibling layouts
+  // with tile-aligned shard rows) is used as is: the builder would re-derive
+  // ceil(rows / cores) and lose the alignment the candidate was validated with.
+  if (reshardLayout.getMemLayout() &&
+      isShardedMemoryLayout(reshardLayout.getMemLayout().getValue()) &&
+      reshardLayout.getCoreRangeSet() &&
+      reshardLayout.getShardShape() != outputLayout.getShardShape() &&
+      reshardLayout.getElementType() == outputLayout.getElementType()) {
+    outputLayout = reshardLayout;
+  }
   RankedTensorType newTensorType =
       utils::RankedTensorTypeFactory::create(producerTensorType, outputLayout);
 

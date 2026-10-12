@@ -30,6 +30,8 @@ namespace mlir::tt::ttir {
 #define GEN_PASS_DEF_TTIRFUSING
 #include "ttmlir/Dialect/TTIR/Transforms/Passes.h.inc"
 
+#include <cstdlib>
+
 namespace {
 
 // Check if we can fuse conv followed by add into conv with bias.
@@ -709,6 +711,15 @@ public:
   ///   %scaled_weight = multiply(%weight, %reshaped_scale)
   ///   %scaled_bias = multiply(%bias, %scale)
   ///   %result = conv(%input, %scaled_weight, %scaled_bias)
+  ///
+  /// Multi-use pointwise conv (kernel 1x1, stride 1, dilation 1): when the
+  /// conv result feeds several scalar multiplies, each multiply gets its own
+  /// copy of the conv with the scale folded into that copy's weights/bias
+  /// and the multiply disappears; the original conv stays for any other
+  /// user and is erased once nothing reads it. A 1x1 conv costs about the
+  /// same as one pass over its output, while a scalar multiply against a
+  /// broadcast 1x1x1x1 constant is a slow eltwise path, so one conv per
+  /// scale is cheaper than one conv plus one multiply per scale.
 
   mlir::LogicalResult
   matchAndRewrite(MultiplyOp multiplyOp,
@@ -721,6 +732,7 @@ public:
 
     ConvOpType convOp = components->first;
     Value scaleValue = components->second;
+    const bool cloneConv = !convOp.getResult().hasOneUse();
 
     // Reshape scale to match weight dimensions and pre-multiply weights.
     Value reshapedScale = createReshapedScale(rewriter, scaleValue, convOp);
@@ -734,13 +746,33 @@ public:
     // resshaped scale.
     Value scaledWeights = createScaledWeights(
         rewriter, convOp.getLoc(), convOp.getWeight(), reshapedScale);
+    Value scaledBias;
+    if (auto bias = convOp.getBias()) {
+      scaledBias = createScaledBias(rewriter, bias, convOp, scaleValue);
+    }
+
+    if (cloneConv) {
+      // Other users still read the unscaled conv: give this multiply its own
+      // scaled copy of the conv, right after the original.
+      rewriter.setInsertionPointAfter(convOp);
+      auto scaledConv = mlir::cast<ConvOpType>(rewriter.clone(*convOp));
+      scaledConv->setLoc(ttmlir::utils::appendLocationSuffix(
+          multiplyOp.getLoc(), "_scaled_conv"));
+      rewriter.modifyOpInPlace(scaledConv, [&]() {
+        scaledConv.getWeightMutable().assign(scaledWeights);
+        if (scaledBias) {
+          scaledConv.getBiasMutable().assign(scaledBias);
+        }
+      });
+      rewriter.replaceAllOpUsesWith(multiplyOp, scaledConv);
+      return mlir::success();
+    }
 
     // Update conv to use scaled weights and replace multiply operation.
     rewriter.modifyOpInPlace(
         convOp, [&]() { convOp.getWeightMutable().assign(scaledWeights); });
 
-    if (auto bias = convOp.getBias()) {
-      Value scaledBias = createScaledBias(rewriter, bias, convOp, scaleValue);
+    if (scaledBias) {
       rewriter.modifyOpInPlace(
           convOp, [&]() { convOp.getBiasMutable().assign(scaledBias); });
     }
@@ -768,11 +800,48 @@ private:
 
   // We can commute if scale is constant, has valid shape, and is not dependent
   // on convOp.
+  // A pointwise conv: every kernel dim 1, stride 1, dilation 1. Duplicating
+  // it per scale is cheaper than keeping one broadcast multiply per scale.
+  static bool isPointwiseConv(ConvOpType convOp) {
+    if constexpr (std::is_same_v<ConvOpType, Conv2dOp>) {
+      // stride / dilation are `i32 | array<2xi32>`.
+      auto allOnes = [](Attribute attr) {
+        if (auto i = mlir::dyn_cast_or_null<IntegerAttr>(attr)) {
+          return i.getInt() == 1;
+        }
+        if (auto arr = mlir::dyn_cast_or_null<DenseI32ArrayAttr>(attr)) {
+          return llvm::all_of(arr.asArrayRef(),
+                              [](int32_t x) { return x == 1; });
+        }
+        return false;
+      };
+      auto weightType =
+          mlir::cast<RankedTensorType>(convOp.getWeight().getType());
+      return weightType.getRank() == 4 && weightType.getDimSize(2) == 1 &&
+             weightType.getDimSize(3) == 1 && allOnes(convOp.getStrideAttr()) &&
+             allOnes(convOp.getDilationAttr()) && convOp.getGroups() == 1;
+    }
+    return false;
+  }
+
   static bool isCommutable(ConvOpType convOp,
                            mlir::TypedValue<RankedTensorType> scale) {
-    // Conv should only have one use and that use should be a multiply op.
-    if (!convOp || !convOp.getResult().hasOneUse()) {
+    // Conv should have one use (a multiply), or be a pointwise conv whose
+    // every user is a multiply (each one then gets a scaled copy of the
+    // conv; see matchAndRewrite).
+    if (!convOp) {
       return false;
+    }
+    if (!convOp.getResult().hasOneUse()) {
+      static const bool multiUseDisabled = [] {
+        const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+        return env && llvm::StringRef(env).contains("conv_multiply_multiuse");
+      }();
+      if (multiUseDisabled || !isPointwiseConv(convOp) ||
+          !llvm::all_of(convOp.getResult().getUsers(),
+                        [](Operation *user) { return isa<MultiplyOp>(user); })) {
+        return false;
+      }
     }
     mlir::func::FuncOp funcOp =
         convOp->template getParentOfType<mlir::func::FuncOp>();
@@ -970,6 +1039,221 @@ private:
 // function argument need to be put to Host/RM. This is temporary
 // solution until we complete refactor of TTNNLayout see:
 // https://github.com/tenstorrent/tt-mlir/issues/3432.
+// Folds a pointwise (1x1) convolution that consumes the sum of a pointwise
+// convolution and a transposed convolution into the two producers:
+//
+//   conv1x1[W, b](add(conv1x1[Ws, bs](y), convT[Wt, bt](x)))
+//     = add(conv1x1[W.Ws, W.bs + W.bt + b](y), convT[W.Wt](x))
+//
+// The weight products are written with TTIR ops on the constant weights, so
+// const-eval hoisting computes them once on the host. The graph then runs
+// one full-size matmul less; the sum's consumers are unchanged (a following
+// activation stays on the sum). Requires constant weights and biases, unit
+// stride / dilation, no padding, a single group, and single-use producers.
+class PointwiseConvAfterAddFold : public mlir::OpRewritePattern<Conv2dOp> {
+  using mlir::OpRewritePattern<Conv2dOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(Conv2dOp outer,
+                  mlir::PatternRewriter &rewriter) const final {
+    static const bool disabled = [] {
+      const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+      return env && llvm::StringRef(env).contains("conv1x1_add_fold");
+    }();
+    if (disabled || !isPointwise(outer)) {
+      return mlir::failure();
+    }
+    auto add = outer.getInput().getDefiningOp<AddOp>();
+    if (!add || !add->hasOneUse()) {
+      return mlir::failure();
+    }
+    Conv2dOp inner = add.getLhs().getDefiningOp<Conv2dOp>();
+    ConvTranspose2dOp convT = add.getRhs().getDefiningOp<ConvTranspose2dOp>();
+    bool innerFirst = true;
+    if (!inner || !convT) {
+      inner = add.getRhs().getDefiningOp<Conv2dOp>();
+      convT = add.getLhs().getDefiningOp<ConvTranspose2dOp>();
+      innerFirst = false;
+    }
+    if (!inner || !convT || !inner->hasOneUse() || !convT->hasOneUse() ||
+        !isPointwise(inner) || convT.getGroups() != 1) {
+      return mlir::failure();
+    }
+    // Channel-last activations with 1x1x1xC biases.
+    auto outType = mlir::cast<RankedTensorType>(outer.getResult().getType());
+    if (outType.getRank() != 4 || outer.getChannelDim() != 3 ||
+        inner.getChannelDim() != 3 || convT.getChannelDim() != 3) {
+      return mlir::failure();
+    }
+    auto wType = mlir::cast<RankedTensorType>(outer.getWeight().getType());
+    auto wsType = mlir::cast<RankedTensorType>(inner.getWeight().getType());
+    auto wtType = mlir::cast<RankedTensorType>(convT.getWeight().getType());
+    if (wType.getRank() != 4 || wsType.getRank() != 4 ||
+        wtType.getRank() != 4 || wType.getElementType() != wsType.getElementType() ||
+        wType.getElementType() != wtType.getElementType()) {
+      return mlir::failure();
+    }
+    int64_t o = wType.getDimSize(0), m = wType.getDimSize(1);
+    int64_t i = wsType.getDimSize(1), it = wtType.getDimSize(0);
+    int64_t kh = wtType.getDimSize(2), kw = wtType.getDimSize(3);
+    if (wsType.getDimSize(0) != m || wtType.getDimSize(1) != m ||
+        outType.getDimSize(3) != o) {
+      return mlir::failure();
+    }
+    auto biasOk = [&](Value bias) {
+      if (!bias) {
+        return true;
+      }
+      auto t = mlir::cast<RankedTensorType>(bias.getType());
+      return t.getRank() == 4 && t.getDimSize(0) == 1 && t.getDimSize(1) == 1 &&
+             t.getDimSize(2) == 1 && t.getElementType() == wType.getElementType();
+    };
+    if (!biasOk(outer.getBias()) || !biasOk(inner.getBias()) ||
+        !biasOk(convT.getBias())) {
+      return mlir::failure();
+    }
+    mlir::func::FuncOp funcOp = outer->getParentOfType<mlir::func::FuncOp>();
+    llvm::SmallPtrSet<BlockArgument, 4> constParams =
+        mlir::tt::ttcore::getConstsAndParams(funcOp);
+    auto isConstDerived = [&](Value v) {
+      if (!v) {
+        return true;
+      }
+      SetVector<Value> chain = ttmlir::utils::getUseDefChain(v);
+      SetVector<BlockArgument> args =
+          ttmlir::utils::filterBlockArguments(chain.getArrayRef());
+      if (args.empty()) {
+        return false;
+      }
+      return llvm::all_of(args, [&](BlockArgument a) {
+        return constParams.contains(a);
+      });
+    };
+    if (!isConstDerived(outer.getWeight()) ||
+        !isConstDerived(inner.getWeight()) ||
+        !isConstDerived(convT.getWeight()) || !isConstDerived(outer.getBias()) ||
+        !isConstDerived(inner.getBias()) || !isConstDerived(convT.getBias())) {
+      return mlir::failure();
+    }
+
+    Type et = wType.getElementType();
+    Operation *first = inner->isBeforeInBlock(convT) ? inner.getOperation()
+                                                      : convT.getOperation();
+    // The weights may be produced by earlier folds (scale multiplies) placed
+    // next to their conv; move those chains ahead of both producers.
+    for (Value v : {outer.getWeight(), inner.getWeight(), convT.getWeight(),
+                    outer.getBias(), inner.getBias(), convT.getBias()}) {
+      if (v) {
+        utils::moveUDChainBefore(v, first);
+      }
+    }
+    rewriter.setInsertionPoint(first);
+    Location loc = ttmlir::utils::appendLocationSuffix(outer.getLoc(), "_fold");
+    auto rt = [&](llvm::ArrayRef<int64_t> shape) {
+      return RankedTensorType::get(shape, et);
+    };
+    auto reshape = [&](Value v, llvm::ArrayRef<int64_t> shape) -> Value {
+      llvm::SmallVector<int32_t> s32(shape.begin(), shape.end());
+      return rewriter.create<ReshapeOp>(loc, rt(shape), v,
+                                        rewriter.getI32ArrayAttr(s32));
+    };
+    // W as [O, M].
+    Value w2 = reshape(outer.getWeight(), {o, m});
+    // Ws' = W . Ws : [O, I, 1, 1].
+    Value ws2 = reshape(inner.getWeight(), {m, i});
+    Value wsProd = rewriter.create<MatmulOp>(loc, rt({o, i}), w2, ws2);
+    Value wsNew = reshape(wsProd, {o, i, 1, 1});
+    // Wt' = W . Wt per tap : [It, O, kh, kw].
+    Value wtPerm = rewriter.create<PermuteOp>(
+        loc, rt({it, kh, kw, m}), convT.getWeight(),
+        llvm::ArrayRef<int64_t>{0, 2, 3, 1});
+    Value wtFlat = reshape(wtPerm, {it * kh * kw, m});
+    Value wtProd = rewriter.create<MatmulOp>(loc, rt({it * kh * kw, o}), wtFlat,
+                                             w2, /*transpose_a=*/false,
+                                             /*transpose_b=*/true);
+    Value wtBack = reshape(wtProd, {it, kh, kw, o});
+    Value wtNew = rewriter.create<PermuteOp>(loc, rt({it, o, kh, kw}), wtBack,
+                                             llvm::ArrayRef<int64_t>{0, 3, 1, 2});
+    // Bias' = W . bs + W . bt + b : [1, 1, 1, O].
+    Value biasNew;
+    auto foldBias = [&](Value bias) {
+      if (!bias) {
+        return;
+      }
+      Value b2 = reshape(bias, {m, 1});
+      Value prod = rewriter.create<MatmulOp>(loc, rt({o, 1}), w2, b2);
+      Value b4 = reshape(prod, {1, 1, 1, o});
+      biasNew = biasNew ? rewriter.create<AddOp>(loc, rt({1, 1, 1, o}),
+                                                 biasNew, b4)
+                        : b4;
+    };
+    foldBias(inner.getBias());
+    foldBias(convT.getBias());
+    if (Value b = outer.getBias()) {
+      biasNew = biasNew ? rewriter.create<AddOp>(loc, rt({1, 1, 1, o}),
+                                                 biasNew, b)
+                        : b;
+    }
+
+    // New producers write the outer conv's result type.
+    rewriter.setInsertionPoint(inner);
+    Operation *innerNew = rewriter.clone(*inner.getOperation());
+    innerNew->getResult(0).setType(outType);
+    innerNew->setOperand(1, wsNew);
+    if (biasNew) {
+      if (inner.getBias()) {
+        innerNew->setOperand(2, biasNew);
+      } else {
+        innerNew->insertOperands(innerNew->getNumOperands(), biasNew);
+      }
+    }
+    rewriter.setInsertionPoint(convT);
+    Operation *convTNew = rewriter.clone(*convT.getOperation());
+    convTNew->getResult(0).setType(outType);
+    convTNew->setOperand(1, wtNew);
+    if (convT.getBias()) {
+      convTNew->eraseOperand(2);
+    }
+    rewriter.setInsertionPoint(outer);
+    Value lhs = innerFirst ? innerNew->getResult(0) : convTNew->getResult(0);
+    Value rhs = innerFirst ? convTNew->getResult(0) : innerNew->getResult(0);
+    auto addNew = rewriter.create<AddOp>(outer.getLoc(), outType, lhs, rhs);
+    rewriter.replaceOp(outer, addNew.getResult());
+    rewriter.eraseOp(add);
+    rewriter.eraseOp(inner);
+    rewriter.eraseOp(convT);
+    return mlir::success();
+  }
+
+private:
+  static bool isPointwise(Conv2dOp conv) {
+    auto allOnes = [](Attribute attr) {
+      if (auto i = mlir::dyn_cast_or_null<IntegerAttr>(attr)) {
+        return i.getInt() == 1;
+      }
+      if (auto arr = mlir::dyn_cast_or_null<DenseI32ArrayAttr>(attr)) {
+        return llvm::all_of(arr.asArrayRef(), [](int32_t x) { return x == 1; });
+      }
+      return false;
+    };
+    auto allZeros = [](Attribute attr) {
+      if (auto i = mlir::dyn_cast_or_null<IntegerAttr>(attr)) {
+        return i.getInt() == 0;
+      }
+      if (auto arr = mlir::dyn_cast_or_null<DenseI32ArrayAttr>(attr)) {
+        return llvm::all_of(arr.asArrayRef(), [](int32_t x) { return x == 0; });
+      }
+      return false;
+    };
+    auto weightType = mlir::cast<RankedTensorType>(conv.getWeight().getType());
+    return weightType.getRank() == 4 && weightType.getDimSize(2) == 1 &&
+           weightType.getDimSize(3) == 1 && allOnes(conv.getStrideAttr()) &&
+           allOnes(conv.getDilationAttr()) &&
+           allZeros(conv.getPaddingAttr()) && conv.getGroups() == 1;
+  }
+};
+
 template <typename ConvOpType>
 class ConvTagWeights : public mlir::OpRewritePattern<ConvOpType> {
 public:
@@ -3807,6 +4091,7 @@ public:
       if (conv2dWithMultiplyEnabled) {
         patterns.add<ConvWithMultiply<Conv2dOp>>(&getContext());
         patterns.add<ConvWithMultiply<ConvTranspose2dOp>>(&getContext());
+        patterns.add<PointwiseConvAfterAddFold>(&getContext());
         patterns.add<BatchNormDecomposition>(&getContext());
       }
       if (permuteMatmulEnabled) {

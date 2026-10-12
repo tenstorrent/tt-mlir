@@ -109,6 +109,71 @@ static bool getBothDoubleBuffersEnabled(const BeamCandidate &c) {
   return false;
 }
 
+static bool convBlockShardPreferenceDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("conv_bs_prefer");
+  }();
+  return disabled;
+}
+
+LayoutScore
+Conv2dRuleBook::adjustScore(Operation *op, LayoutScore base,
+                            const OpConfig &config,
+                            llvm::ArrayRef<TTNNLayoutAttr> /*inputLayouts*/,
+                            bool /*requiresReshard*/) const {
+  // A height-sharded conv2d streams the whole weight matrix into every core;
+  // a block-sharded one only the columns a core owns. With few output rows
+  // per core the weight traffic (cores x K x N bytes, all from DRAM) exceeds
+  // the compute time, and the block-sharded program is faster even after a
+  // reshard of the input. Rank such height-sharded candidates below the
+  // block-sharded ones; everything else keeps the default ordering.
+  auto conv = mlir::dyn_cast<Conv2dOp>(op);
+  if (!conv || convBlockShardPreferenceDisabled() || !base.isSharded ||
+      !base.isL1 || !config.outputLayout) {
+    return base;
+  }
+  // A pointwise conv runs as a matmul whose weights are multicast; its
+  // height-sharded program is the fast one.
+  auto kernel = conv.getKernelSize();
+  if (kernel.size() != 2 || (kernel[0] == 1 && kernel[1] == 1)) {
+    return base;
+  }
+  auto ml = config.outputLayout.getMemLayout();
+  if (!ml || ml.getValue() != TensorMemoryLayout::HeightSharded) {
+    return base;
+  }
+  auto outType = mlir::dyn_cast<RankedTensorType>(conv.getResult().getType());
+  if (!outType || outType.getRank() < 2) {
+    return base;
+  }
+  int64_t rows = 1;
+  for (int64_t i = 0; i + 1 < outType.getRank(); ++i) {
+    rows *= outType.getDimSize(i);
+  }
+  int64_t cores = base.coreCount > 0 ? base.coreCount : 1;
+  // Weight bytes per element: bfp8 weights stream one byte per element.
+  int64_t weightBytes = 2;
+  if (const auto *attrs = std::get_if<Conv2dAttrs>(&config.opSpecificAttrs)) {
+    if (attrs->conv2dConfig && *attrs->conv2dConfig &&
+        attrs->conv2dConfig->getWeightsDtype() &&
+        (*attrs->conv2dConfig->getWeightsDtype() ==
+             ttcore::DataType::BFP_BFloat8 ||
+         *attrs->conv2dConfig->getWeightsDtype() ==
+             ttcore::DataType::BFP_BFloat4)) {
+      weightBytes = 1;
+    }
+  }
+  // Weight time ~ cores * K * N * weightBytes / DRAM bandwidth; compute time
+  // ~ 2 * rows * K * N / peak rate. Their ratio is cores * weightBytes * c /
+  // rows with c = peak rate / (2 * bandwidth) ~ 128 for these parts.
+  constexpr int64_t kRateOverBandwidth = 128;
+  if (cores * weightBytes * kRateOverBandwidth > rows) {
+    base.costClass = 1;
+  }
+  return base;
+}
+
 bool Conv2dRuleBook::preferCandidate(Operation *op, const BeamCandidate &a,
                                      const BeamCandidate &b) const {
   // Prefer act_block_h_override=0 (auto, best), then higher over lower.

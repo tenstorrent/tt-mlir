@@ -34,6 +34,13 @@ namespace mlir::tt::ttnn {
 //===----------------------------------------------------------------------===//
 
 struct Conv2dRuleBook : OpRuleBook {
+  /// Height-sharded candidates of a conv2d whose per-core weight traffic
+  /// would dominate the compute get a worse cost class than block-sharded
+  /// ones (see LayoutScore::costClass).
+  LayoutScore adjustScore(Operation *op, LayoutScore base,
+                          const OpConfig &config,
+                          llvm::ArrayRef<TTNNLayoutAttr> inputLayouts,
+                          bool requiresReshard) const override;
   /// Output hints: full legal configs with Conv2dConfig.
   OutputHints
   getOutputHints(Operation *op,

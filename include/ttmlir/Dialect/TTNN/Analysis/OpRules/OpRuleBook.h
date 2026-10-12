@@ -44,6 +44,25 @@ struct OpRuleBook {
     return nullptr;
   }
 
+  /// Op-aware variant of getInputLayoutFilter: rule books whose answer
+  /// depends on the op's attributes (e.g. which dims a slice touches)
+  /// override this one. Default delegates to the operand-only filter.
+  virtual LayoutFilterFn getInputLayoutFilter(Operation * /*op*/,
+                                              unsigned operandIdx) const {
+    return getInputLayoutFilter(operandIdx);
+  }
+
+  /// Extra output hints derived from a concrete input layout combination,
+  /// tried in addition to getOutputHints() for that combination. Lets an op
+  /// propose an output layout the legal-layout enumeration cannot produce,
+  /// e.g. "the input's sharding with a narrower shard" for a channel slice
+  /// on a 63-core height-sharded tensor. Default: none.
+  virtual std::vector<OpConfig> inputDerivedOutputHints(
+      Operation * /*op*/,
+      llvm::ArrayRef<TTNNLayoutAttr> /*inputLayouts*/) const {
+    return {};
+  }
+
   /// Whether to generate reshard candidates for this op's inputs.
   /// This is a compile-time optimization: returning false skips
   /// O(K * reshardCandidates) backend validation calls. Use false when
@@ -57,6 +76,21 @@ struct OpRuleBook {
   /// is otherwise tiled-only); pair with getInputLayoutFilter() ->
   /// requireRowMajor() to drop the tiled originals.
   virtual bool generatesRowMajorInputSiblings(unsigned /*operandIdx*/) const {
+    return false;
+  }
+  /// Op-aware variant (e.g. a reshape that is a free view only in RowMajor).
+  /// Default delegates to the operand-only version.
+  virtual bool generatesRowMajorInputSiblings(Operation * /*op*/,
+                                              unsigned operandIdx) const {
+    return generatesRowMajorInputSiblings(operandIdx);
+  }
+
+  /// Tiled input siblings: an op that needs a TILE input while its producer
+  /// candidate is a ROW_MAJOR L1 height-sharded tensor gets that candidate
+  /// cloned into a tiled sibling (isReshard=true) on a tile-aligned shard grid,
+  /// so the retile runs on the shards instead of through DRAM.
+  virtual bool generatesTiledInputSiblings(Operation * /*op*/,
+                                           unsigned /*operandIdx*/) const {
     return false;
   }
 

@@ -17,6 +17,10 @@
 #include "llvm/ADT/TypeSwitch.h"
 #include "llvm/Support/ErrorHandling.h"
 
+#include "llvm/ADT/DenseSet.h"
+#include "llvm/Support/raw_ostream.h"
+
+#include <cstdlib>
 #include <vector>
 
 namespace mlir::tt::ttnn {
@@ -367,6 +371,30 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
             ttmlir::LogComponent::GreedyOptimizer,
             "Filled op specific attrs for conv2d op {}, ending with {} configs",
             convOp, analysisResult.size());
+        // Release-build probe: TTMLIR_CONV_CFG_PROBE=<substring of loc name>
+        // (or "all") prints the conv2d configs the search generated.
+        if (const char *pat = std::getenv("TTMLIR_CONV_CFG_PROBE")) {
+          std::string locName;
+          if (auto nameLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
+            locName = nameLoc.getName().str();
+          }
+          llvm::StringRef p(pat);
+          if (p == "all" || llvm::StringRef(locName).contains(p)) {
+            llvm::errs() << "[CONV_CFG_PROBE] " << op->getName() << " @"
+                         << locName << " in=" << convOp.getInputHeight() << "x"
+                         << convOp.getInputWidth() << " spatial>100K="
+                         << (spatialSize > 100000) << " configs="
+                         << analysisResult.size() << "\n";
+            llvm::DenseSet<Attribute> seen;
+            for (const OpConfig &cfg : analysisResult) {
+              const auto *attrs = std::get_if<Conv2dAttrs>(&cfg.opSpecificAttrs);
+              if (!attrs || !attrs->conv2dConfig || !seen.insert(*attrs->conv2dConfig).second) {
+                continue;
+              }
+              llvm::errs() << "[CONV_CFG_PROBE]   " << *attrs->conv2dConfig << "\n";
+            }
+          }
+        }
       })
       .Case<ttnn::Conv3dOp>([&](auto convOp) {
         assert(!analysisResult.empty() &&

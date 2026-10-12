@@ -61,6 +61,13 @@ struct LayoutScore {
   /// Prefer sharded over interleaved.
   bool isSharded = false;
 
+  /// Op-specific cost class among sharded L1 candidates (lower is better,
+  /// 0 by default). Set by a rule book's adjustScore, e.g. for a convolution
+  /// whose height-sharded program would be bound by the weight traffic every
+  /// core repeats, so that a block-sharded candidate wins even when it needs
+  /// a reshard.
+  uint32_t costClass = 0;
+
   /// Prefer L1 over DRAM.
   bool isL1 = false;
 

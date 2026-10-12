@@ -7,7 +7,25 @@
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 
+#include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/StringRef.h"
+
+#include <cstdlib>
+
 namespace mlir::tt::ttnn {
+
+// A/B switch for the optimizer rules in this file: TTMLIR_OPT_DISABLE is a
+// comma-separated list of rule names that are turned off (release-build
+// friendly; used to attribute measured changes to one rule at a time).
+static bool optRuleDisabled(llvm::StringRef name) {
+  static const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+  if (!env) {
+    return false;
+  }
+  llvm::SmallVector<llvm::StringRef> parts;
+  llvm::StringRef(env).split(parts, ',', -1, false);
+  return llvm::is_contained(parts, name);
+}
 
 //===----------------------------------------------------------------------===//
 // ConcatRuleBook
@@ -189,6 +207,46 @@ OutputHints RepeatRuleBook::getOutputHints(
 // SliceRuleBook
 //===----------------------------------------------------------------------===//
 
+bool isLastDimOnlySlice(Operation *op) {
+  auto slice = mlir::dyn_cast_or_null<SliceStaticOp>(op);
+  if (!slice || optRuleDisabled("slice_sharded")) {
+    return false;
+  }
+  auto inputType = mlir::dyn_cast<RankedTensorType>(slice.getInput().getType());
+  if (!inputType || inputType.getRank() < 2) {
+    return false;
+  }
+  auto asInt = [](Attribute a) { return mlir::cast<IntegerAttr>(a).getInt(); };
+  ArrayAttr begins = slice.getBegins(), ends = slice.getEnds(),
+            step = slice.getStep();
+  int64_t rank = inputType.getRank();
+  if (static_cast<int64_t>(begins.size()) != rank ||
+      static_cast<int64_t>(ends.size()) != rank ||
+      static_cast<int64_t>(step.size()) != rank) {
+    return false;
+  }
+  for (int64_t d = 0; d < rank; ++d) {
+    if (asInt(step[d]) != 1) {
+      return false;
+    }
+    if (d == rank - 1) {
+      continue;
+    }
+    if (asInt(begins[d]) != 0 || asInt(ends[d]) != inputType.getDimSize(d)) {
+      return false;
+    }
+  }
+  return true;
+}
+
+// A height-sharded L1 tile tensor: every core owns whole rows, so a slice
+// of the last dim is shard-local (same rows, fewer columns per core).
+static bool isHeightShardedL1Tile(TTNNLayoutAttr layout) {
+  auto ml = layout.getMemLayout();
+  return ml && ml.getValue() == TensorMemoryLayout::HeightSharded &&
+         layout.hasL1BufferType() && layout.isTiled();
+}
+
 LayoutFilterFn
 SliceRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Slice: sharded inputs produce incorrect results in tt-metal.
@@ -196,7 +254,31 @@ SliceRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   return layout_filter_utils::rejectAllSharded;
 }
 
+LayoutFilterFn SliceRuleBook::getInputLayoutFilter(Operation *op,
+                                                   unsigned operandIdx) const {
+  // A last-dim-only slice is a per-core operation on a height-sharded tile
+  // tensor (the rows a core owns do not change), which tt-metal's slice
+  // handles when the output keeps the input's grid and shard height. Accept
+  // that input layout; everything else keeps the interleaved-only rule.
+  if (isLastDimOnlySlice(op)) {
+    return [](TTNNLayoutAttr layout) {
+      return isHeightShardedL1Tile(layout) ||
+             layout_filter_utils::rejectAllSharded(layout);
+    };
+  }
+  return getInputLayoutFilter(operandIdx);
+}
+
 bool SliceRuleBook::shouldExploreReshards() const { return false; }
+
+bool SliceRuleBook::generatesTiledInputSiblings(Operation *op,
+                                                unsigned operandIdx) const {
+  // A last-dim-only slice of a row-major height-sharded producer (a pool
+  // output, for instance) can read the producer tilized on its own shards
+  // instead of through a DRAM round trip.
+  return operandIdx == 0 && isLastDimOnlySlice(op) &&
+         !optRuleDisabled("slice_tiled_sibling");
+}
 
 OutputHints
 SliceRuleBook::getOutputHints(Operation * /*op*/,
@@ -205,6 +287,45 @@ SliceRuleBook::getOutputHints(Operation * /*op*/,
   // https://github.com/tenstorrent/tt-metal/issues/38016
   // TODO(rpavlovicTT): re-enable slice ops.
   return layout_filter_utils::nonShardedOutputHints(legalConfigs);
+}
+
+std::vector<OpConfig> SliceRuleBook::inputDerivedOutputHints(
+    Operation *op, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  // Height-sharded input of a last-dim-only slice: propose the input's own
+  // sharding (grid and core range set unchanged, shard height unchanged) for
+  // the narrower output. The legal-layout enumeration only knows rectangular
+  // grids, so a 63-core producer layout can only be matched this way.
+  if (inputLayouts.empty() || !isLastDimOnlySlice(op) ||
+      !isHeightShardedL1Tile(inputLayouts[0])) {
+    return {};
+  }
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!outputType) {
+    return {};
+  }
+  TTNNLayoutAttr derived =
+      TTNNLayoutAttr::Builder(inputLayouts[0], outputType.getShape()).build();
+  return {OpConfig(derived)};
+}
+
+bool SliceRuleBook::isValidOutputHintForInputs(
+    const OpConfig &hint, llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const {
+  if (inputLayouts.empty() || !hint.outputLayout) {
+    return true;
+  }
+  auto inMl = inputLayouts[0].getMemLayout();
+  bool inputSharded = inMl && isShardedMemoryLayout(inMl.getValue());
+  auto hintMl = hint.outputLayout.getMemLayout();
+  bool hintSharded = hintMl && isShardedMemoryLayout(hintMl.getValue());
+  if (!inputSharded) {
+    // Interleaved input: the interleaved-only rule stands.
+    return !hintSharded;
+  }
+  // Sharded input (only reachable for a last-dim-only slice): the output must
+  // keep the input's grid, i.e. be the derived hint.
+  return hintSharded && hintMl == inMl &&
+         hint.outputLayout.getGridShape() == inputLayouts[0].getGridShape();
 }
 
 //===----------------------------------------------------------------------===//
@@ -258,6 +379,34 @@ bool canReshapeBeView(Operation *op) {
   return true;
 }
 
+bool reshapePrefersRowMajorInput(Operation *op) {
+  auto reshape = mlir::dyn_cast_or_null<ReshapeOp>(op);
+  if (!reshape || optRuleDisabled("reshape_rm_tail")) {
+    return false;
+  }
+  auto inputType =
+      mlir::dyn_cast<RankedTensorType>(reshape.getInput().getType());
+  auto outputType = mlir::dyn_cast<RankedTensorType>(reshape.getType());
+  if (!inputType || !outputType) {
+    return false;
+  }
+  auto layout = mlir::dyn_cast<TTNNLayoutAttr>(inputType.getEncoding());
+  if (!layout || !layout.isTiled() || canReshapeBeView(op)) {
+    return false;
+  }
+  // In ROW_MAJOR the reshape is a view iff the last dim is unchanged.
+  auto inShape = inputType.getShape(), outShape = outputType.getShape();
+  if (inShape.empty() || outShape.empty() ||
+      inShape.back() != outShape.back()) {
+    return false;
+  }
+  // Only when every user is a permute: a tiled consumer would need the
+  // tensor re-tilized, which costs more than the copy saved here.
+  return !reshape->use_empty() &&
+         llvm::all_of(reshape->getUsers(),
+                      [](Operation *user) { return isa<PermuteOp>(user); });
+}
+
 LayoutFilterFn
 ReshapeRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Reshape/Permute: width-sharded inputs round-trip through interleaved
@@ -266,12 +415,33 @@ ReshapeRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   return layout_filter_utils::rejectWidthSharded;
 }
 
+LayoutFilterFn
+ReshapeRuleBook::getInputLayoutFilter(Operation *op,
+                                      unsigned operandIdx) const {
+  if (reshapePrefersRowMajorInput(op)) {
+    // Keep only the ROW_MAJOR siblings generated for this operand (see
+    // generatesRowMajorInputSiblings): the tiled originals would copy.
+    return [](TTNNLayoutAttr layout) {
+      return layout_filter_utils::requireRowMajor(layout) &&
+             layout_filter_utils::rejectWidthSharded(layout);
+    };
+  }
+  return getInputLayoutFilter(operandIdx);
+}
+
+bool ReshapeRuleBook::generatesRowMajorInputSiblings(
+    Operation *op, unsigned operandIdx) const {
+  return operandIdx == 0 && reshapePrefersRowMajorInput(op);
+}
+
 bool ReshapeRuleBook::shouldExploreReshards() const { return false; }
 
 OutputHints ReshapeRuleBook::getOutputHints(
     Operation *op, const std::vector<OpConfig> &legalConfigs) const {
-  if (canReshapeBeView(op)) {
-    // View-eligible reshape: use NULL hint only (no fallbacks).
+  if (canReshapeBeView(op) || reshapePrefersRowMajorInput(op)) {
+    // View-eligible reshape (or one that becomes a view once its input is the
+    // ROW_MAJOR sibling, see reshapePrefersRowMajorInput): use NULL hint only
+    // (no fallbacks).
     // tt-metal's reshape inherits input memory config when output config is
     // nullopt (reshape.cpp:337), which guarantees the memory-type and sharding
     // conditions for the view optimization (reshape.cpp:378-384) are met.

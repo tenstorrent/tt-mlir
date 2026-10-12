@@ -168,6 +168,27 @@ private:
     return false;
   }
 
+  // True when a row-major height-sharded L1 input with a non-tile-aligned
+  // shard height tilizes into a height-sharded L1 output on a different grid
+  // whose shard height is tile-aligned: reshard first, then tilize on the
+  // shards.
+  bool reshardBeforeShardedTilize(TTNNLayoutAttr input,
+                                  TTNNLayoutAttr output) const {
+    if (input.isTiled() || !output.isTiled() ||
+        !input.hasShardedL1TensorMemoryLayout() ||
+        !output.hasShardedL1TensorMemoryLayout() ||
+        input.getMemLayout().getValue() != TensorMemoryLayout::HeightSharded ||
+        output.getMemLayout().getValue() != TensorMemoryLayout::HeightSharded) {
+      return false;
+    }
+    if (input.getGridShape() == output.getGridShape() &&
+        input.getCoreRangeSet() == output.getCoreRangeSet()) {
+      return false;
+    }
+    llvm::SmallVector<int64_t> inShard = input.getShardShape();
+    return inShard.size() == 2 && inShard[0] % TILE_HEIGHT != 0;
+  }
+
   // Decide whether the layout/dtype change runs before the memory move (in the
   // input memory) or after it (in the output memory). The memory move is always
   // placed last unless tt-metal's sharded (un)tilize constraints (or a host
@@ -185,11 +206,26 @@ private:
       // tensor that was first resharded into the (sharded) output memory can
       // produce a non-tile-aligned physical shard that tt-metal rejects.
       if (output.isTiled()) {
-        return true;
+        // Exception: a height-sharded L1 row-major input whose shard height
+        // is not a tile multiple, going to a height-sharded L1 tile output on
+        // another grid whose shard height is tile-aligned. Tilizing in place
+        // would pad every shard; resharding first lets the tilize run
+        // shard-local on tile-aligned shards.
+        return !reshardBeforeShardedTilize(input, output);
       }
       // Untilize (TILE -> RM): deshard first when the input is L1-sharded (or
       // when moving L1 -> DRAM), then untilize the interleaved tensor;
       // otherwise untilize in place and move afterwards.
+      // An untilize that keeps the L1 sharding (same grid and core placement)
+      // runs in place on the shards; there is no memory move.
+      bool sameShards = input.hasShardedL1TensorMemoryLayout() &&
+                        output.hasShardedL1TensorMemoryLayout() &&
+                        input.getMemLayout() == output.getMemLayout() &&
+                        input.getGridShape() == output.getGridShape() &&
+                        input.getCoreRangeSet() == output.getCoreRangeSet();
+      if (sameShards) {
+        return true;
+      }
       bool deshardFirst = input.hasShardedL1TensorMemoryLayout() ||
                           (input.getBufferType() == ttnn::BufferType::L1 &&
                            output.getBufferType() == ttnn::BufferType::DRAM);
@@ -291,6 +327,30 @@ private:
     RankedTensorType currentType =
         mlir::cast<RankedTensorType>(current.getType());
     RankedTensorType resultType = withTargetMemory(currentType, target);
+    auto currentEncoding =
+        mlir::cast<TTNNLayoutAttr>(currentType.getEncoding());
+    if (reshardBeforeShardedTilize(currentEncoding, target)) {
+      // The row-major intermediate takes the tile-aligned shard height of the
+      // tiled target (the builder would derive ceil(rows / cores), which is
+      // not a tile multiple), so the tilize that follows runs shard-local.
+      auto rmEncoding = mlir::cast<TTNNLayoutAttr>(resultType.getEncoding());
+      llvm::SmallVector<int64_t> rmShard = rmEncoding.getShardShape();
+      llvm::SmallVector<int64_t> tiledShard = target.getScalarShardShape();
+      if (rmShard.size() == 2 && tiledShard.size() == 2 &&
+          tiledShard[0] % TILE_HEIGHT == 0 && tiledShard[0] != rmShard[0]) {
+        rmShard[0] = tiledShard[0];
+        MemRefType memref =
+            ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+                rmEncoding.getContext(), rmShard, rmEncoding.getElementType(),
+                rmEncoding.getBufferType());
+        TTNNLayoutAttr aligned = TTNNLayoutAttr::get(
+            rmEncoding.getContext(), rmEncoding.getLinear(),
+            rmEncoding.getGridShape(), memref, rmEncoding.getMemLayout(),
+            rmEncoding.getTensorMesh(), rmEncoding.getIgnorePhysicalLayout(),
+            rmEncoding.getCoreRangeSet());
+        resultType = utils::RankedTensorTypeFactory::create(currentType, aligned);
+      }
+    }
     return createOp<ttnn::ToMemoryConfigOp>(rewriter, resultType, current);
   }
 
@@ -306,13 +366,25 @@ private:
       return false;
     }
     auto memLayout = encoding.getMemLayout();
-    if (!memLayout ||
-        memLayout.getValue() != TensorMemoryLayout::HeightSharded) {
+    if (!memLayout || !isShardedMemoryLayout(memLayout.getValue())) {
       return false;
     }
     ArrayRef<int64_t> shape = type.getShape();
     int64_t rank = type.getRank();
     if (rank < 2) {
+      return false;
+    }
+    // Block- and width-sharded row-major shards must themselves be tile
+    // sized for the sharded tilize (tt-metal rejects e.g. a 72-row shard);
+    // height-sharded shards are handled by the generic tilize path.
+    if (memLayout.getValue() != TensorMemoryLayout::HeightSharded) {
+      llvm::SmallVector<int64_t> shard = encoding.getShardShape();
+      if (shard.size() == 2 &&
+          (shard[0] % TILE_HEIGHT != 0 || shard[1] % TILE_WIDTH != 0)) {
+        return true;
+      }
+    }
+    if (memLayout.getValue() != TensorMemoryLayout::HeightSharded) {
       return false;
     }
     return (shape[rank - 2] % TILE_HEIGHT != 0) ||

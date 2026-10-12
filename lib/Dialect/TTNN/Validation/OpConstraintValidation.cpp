@@ -19,6 +19,7 @@
 #include "llvm/ADT/Twine.h"
 #include "llvm/Support/Error.h"
 #include "llvm/Support/ErrorHandling.h"
+#include "llvm/Support/FormatVariadic.h"
 
 namespace mlir::tt::ttnn {
 
@@ -159,7 +160,13 @@ checkConstraintsResult(Operation *contextOp,
         " limit: {} [allocatableL1={}, l1SmallSize={}]",
         totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
         l1BuffersPeakUsage, effectiveL1Limit, allocatableL1, l1SmallSize);
-    return ValidationResult::outOfMemoryError("Not enough L1 memory");
+    // The numbers are part of the message so release-build probes (and
+    // users of the error string) can see what was compared.
+    return ValidationResult::outOfMemoryError(llvm::formatv(
+        "Not enough L1 memory: total {0} (peak {1} + additional {2}; cb {3}, "
+        "buffers {4}) > limit {5} (cap {6} x allocatable {7})",
+        totalL1Usage, overallPeakL1Usage, additionalL1Usage, cbPeakUsage,
+        l1BuffersPeakUsage, effectiveL1Limit, tensorL1UsageCap, allocatableL1));
   }
 
   TTMLIR_DEBUG(ttmlir::LogComponent::OpValidation,

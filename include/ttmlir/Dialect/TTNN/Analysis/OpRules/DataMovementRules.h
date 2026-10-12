@@ -64,12 +64,28 @@ struct RepeatRuleBook : OpRuleBook {
 /// SliceStaticOp, SliceDynamicOp: reject all sharded inputs, non-sharded
 /// output, no reshards.
 struct SliceRuleBook : OpRuleBook {
+  using OpRuleBook::getInputLayoutFilter;
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  LayoutFilterFn getInputLayoutFilter(Operation *op,
+                                      unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
+  bool generatesTiledInputSiblings(Operation *op,
+                                   unsigned operandIdx) const override;
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
+  std::vector<OpConfig> inputDerivedOutputHints(
+      Operation *op,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
+  bool isValidOutputHintForInputs(
+      const OpConfig &hint,
+      llvm::ArrayRef<TTNNLayoutAttr> inputLayouts) const override;
 };
+
+/// True for a static slice that only narrows the last (channel) dimension of
+/// a rank >= 2 tensor with unit steps: every shard keeps its rows and loses
+/// columns, so the op can run shard-local on a height-sharded input.
+bool isLastDimOnlySlice(Operation *op);
 
 /// True if a `ttnn.reshape` is realized by tt-metal as a zero-copy view of
 /// its input (same buffer, same address). Mirrors the `this_is_view`
@@ -80,12 +96,24 @@ bool canReshapeBeView(Operation *op);
 /// View-eligible reshapes use NULL hint only (inherit input memory config).
 /// Non-view reshapes use non-sharded output hints.
 struct ReshapeRuleBook : OpRuleBook {
+  using OpRuleBook::generatesRowMajorInputSiblings;
+  using OpRuleBook::getInputLayoutFilter;
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
+  LayoutFilterFn getInputLayoutFilter(Operation *op,
+                                      unsigned operandIdx) const override;
+  bool generatesRowMajorInputSiblings(Operation *op,
+                                      unsigned operandIdx) const override;
   bool shouldExploreReshards() const override;
   OutputHints
   getOutputHints(Operation *op,
                  const std::vector<OpConfig> &legalConfigs) const override;
 };
+
+/// True for a `ttnn.reshape` that copies in TILE layout but is a free view in
+/// ROW_MAJOR (last dim unchanged, penultimate dims not tile-aligned) and whose
+/// every user is a permute: untilizing first turns copy + tiled permute into
+/// view + row-major permute.
+bool reshapePrefersRowMajorInput(Operation *op);
 
 /// PadOp: non-sharded output only, no reshards.
 struct PadRuleBook : OpRuleBook {
