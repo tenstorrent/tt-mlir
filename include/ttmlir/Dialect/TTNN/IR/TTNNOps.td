@@ -3506,7 +3506,9 @@ def TTNN_GridSampleOp : TTNN_Op<"grid_sample"> {
 
       Input tensor is in NHWC format with shape (N, H_in, W_in, C).
       Grid tensor has shape (N, H_out, W_out, 2), where the trailing size-2 dimension holds
-      normalized (x, y) coordinates in [-1, 1] for each output location.
+      normalized (x, y) coordinates in [-1, 1] for each output location. With
+      batch_output_channels it is (N, H_out, W_out, 2K) for K points per output location, or
+      the unmerged (N, H_out, W_out, K, 2) form in nearest mode (read as is by the kernel).
       Output tensor has shape (N, H_out, W_out, C) in NHWC format.
 
       Internally dispatches to ttnn::grid_sample. Nearest-neighbor and bilinear

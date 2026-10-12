@@ -5228,8 +5228,13 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
     return emitOpError("input tensor must be 4D, got rank ")
            << inputType.getRank();
   }
-  if (gridType.getRank() != 4) {
-    return emitOpError("grid tensor must be 4D (N,H_out,W_out,2), got rank ")
+  // The grid is (N, H_out, W_out, 2K), or the batched grid before its last
+  // two dims are merged, (N, H_out, W_out, K, 2): the nearest kernel reads
+  // that form as it is (merging the dims on device would be a page-by-page
+  // copy, since the page size changes).
+  if (gridType.getRank() != 4 && gridType.getRank() != 5) {
+    return emitOpError("grid tensor must be 4D (N,H_out,W_out,2K) or 5D "
+                       "(N,H_out,W_out,K,2), got rank ")
            << gridType.getRank();
   }
   if (outputType.getRank() != 4) {
@@ -5237,6 +5242,19 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
            << outputType.getRank();
   }
   int64_t gridLastDim = gridType.getShape()[3];
+  if (gridType.getRank() == 5) {
+    if (gridType.getShape()[4] != 2) {
+      return emitOpError("5D grid last dimension must be 2, got ")
+             << gridType.getShape()[4];
+    }
+    if (!getBatchOutputChannels()) {
+      return emitOpError("a 5D grid requires batch_output_channels=true");
+    }
+    if (getMode() != "nearest") {
+      return emitOpError("a 5D grid is only supported in nearest mode");
+    }
+    gridLastDim = gridType.getShape()[3] * 2;
+  }
   if (getBatchOutputChannels()) {
     if (gridLastDim < 2 || gridLastDim % 2 != 0) {
       return emitOpError(

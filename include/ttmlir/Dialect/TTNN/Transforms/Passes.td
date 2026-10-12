@@ -1043,6 +1043,13 @@ def TTNNGridSampleLayoutOptimizer : Pass<"ttnn-grid-sample-layout-opt", "::mlir:
       TilizeWithValPadding + ReshapeView(TILE) + Untilize
     and moves the grid tensor from DRAM to L1 HEIGHT_SHARDED, reducing
     DRAM traffic for every spatial sampling lookup during inference.
+
+    A batched nearest grid_sample (batch_output_channels=true) whose grid is
+    the row-major reshape of a rank-5 (N, H_out, W_out, K, 2) bf16 tensor
+    reads that tensor directly: the kernel gathers the grid pages itself,
+    and the reshape (a page-by-page copy on device, since the page size
+    changes) and the shard move are dropped. TTMLIR_OPT_DISABLE=grid_rank5
+    turns this rule off.
   }];
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
 }

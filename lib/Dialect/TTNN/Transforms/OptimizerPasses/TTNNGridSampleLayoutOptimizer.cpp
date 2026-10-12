@@ -37,6 +37,12 @@
 //   TilizeWithValPadding + ReshapeView(TILE) + Untilize —
 // and moves the grid to L1 HEIGHT_SHARDED, reducing DRAM reads during
 // spatial sampling.
+//
+// A batched nearest grid_sample (batch_output_channels) whose grid is the
+// row-major reshape of a rank-5 (N, H_out, W_out, K, 2) tensor reads the
+// rank-5 tensor directly instead (feedRank5GridDirectly): the kernel gathers
+// the grid pages itself, and the reshape (a page-by-page copy, the page size
+// changes) and the shard move are dropped.
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -47,6 +53,9 @@
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/IRMapping.h"
 #include "mlir/IR/PatternMatch.h"
+#include "llvm/ADT/StringRef.h"
+
+#include <cstdlib>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNGRIDSAMPLELAYOUTOPTIMIZER
@@ -93,6 +102,108 @@ static Value matchLayoutChange(Operation *op, Layout wantLayout) {
   return input;
 }
 
+// Kill switch (comma list in TTMLIR_OPT_DISABLE) for the rank-5 grid rule.
+static bool rank5GridDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("grid_rank5");
+  }();
+  return disabled;
+}
+
+// A batched nearest grid_sample whose grid is the merge of the last two dims
+// of a rank-5 (N, H_out, W_out, K, 2) row-major interleaved bf16 tensor,
+// possibly moved or re-laid-out afterwards, reads that tensor directly. On
+// device the merge is not a view (the page size changes from 2 to 2K
+// elements), so ttnn.reshape copies it page by page, and the kernel gathers
+// the 4-byte pages itself faster than the copy alone. The reshape and the
+// moves behind it are erased when nothing else uses them.
+//
+// clang-format off
+//   before:  %r = ttnn.reshape(%g5)  (N,H,W,K,2) -> (N,H,W,2K)   RM DRAM
+//            %s = ttnn.to_memory_config(%r)                      RM L1 sharded
+//            %o = ttnn.grid_sample(%x, %s) {nearest, batch_output_channels}
+//   after:   %o = ttnn.grid_sample(%x, %g5) {nearest, batch_output_channels}
+// clang-format on
+static bool feedRank5GridDirectly(ttnn::GridSampleOp gsOp) {
+  if (rank5GridDisabled() || gsOp.getMode() != "nearest" ||
+      !gsOp.getBatchOutputChannels() || gsOp.getUsePrecomputedGrid()) {
+    return false;
+  }
+  auto outLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+      mlir::cast<RankedTensorType>(gsOp.getResult().getType()).getEncoding());
+  if (!outLayout || !outLayout.getMemLayout() ||
+      outLayout.getMemLayout().getValue() !=
+          TensorMemoryLayout::HeightSharded) {
+    return false;
+  }
+
+  // Walk back over memory moves and layout changes to the reshape.
+  SmallVector<Operation *, 4> chain;
+  Value v = gsOp.getGrid();
+  while (Operation *def = v.getDefiningOp()) {
+    if (mlir::isa<ttnn::ToMemoryConfigOp, ttnn::ToLayoutOp,
+                  ttnn::ToTensorSpecOp>(def)) {
+      chain.push_back(def);
+      v = def->getOperand(0);
+      continue;
+    }
+    break;
+  }
+  auto reshape = v.getDefiningOp<ttnn::ReshapeOp>();
+  if (!reshape) {
+    return false;
+  }
+  chain.push_back(reshape);
+  Value src = reshape.getInput();
+  // The reshape may itself read a tilized / moved copy of the grid.
+  while (Operation *def = src.getDefiningOp()) {
+    if (mlir::isa<ttnn::ToMemoryConfigOp, ttnn::ToLayoutOp,
+                  ttnn::ToTensorSpecOp>(def)) {
+      chain.push_back(def);
+      src = def->getOperand(0);
+      continue;
+    }
+    break;
+  }
+  auto srcType = mlir::cast<RankedTensorType>(src.getType());
+  auto outType = mlir::cast<RankedTensorType>(reshape.getResult().getType());
+  if (srcType.getRank() != 5 || outType.getRank() != 4 ||
+      mlir::cast<RankedTensorType>(reshape.getInput().getType()).getShape() !=
+          srcType.getShape()) {
+    return false;
+  }
+  llvm::ArrayRef<int64_t> s5 = srcType.getShape(), s4 = outType.getShape();
+  if (s5[0] != s4[0] || s5[1] != s4[1] || s5[2] != s4[2] || s5[4] != 2 ||
+      s5[3] * 2 != s4[3]) {
+    return false;
+  }
+  auto srcLayout =
+      mlir::dyn_cast_or_null<TTNNLayoutAttr>(srcType.getEncoding());
+  if (!srcLayout || srcLayout.isTiled() ||
+      srcLayout.getDataType() != ttcore::DataType::BFloat16 ||
+      srcLayout.hasShardedTensorMemoryLayout() ||
+      srcLayout.getBufferType() != BufferType::DRAM) {
+    return false;
+  }
+
+  gsOp.getGridMutable().assign(src);
+
+  // Erase the now dead chain, nearest op first; stop at the first op that
+  // still has another user.
+  for (Operation *op : chain) {
+    Value r = op->getResult(0);
+    bool otherUsers = llvm::any_of(r.getUsers(), [](Operation *u) {
+      return !mlir::isa<ttnn::DeallocateOp>(u);
+    });
+    if (otherUsers) {
+      break;
+    }
+    eraseWithDeallocs(op);
+  }
+  return true;
+}
+
 } // namespace
 
 class TTNNGridSampleLayoutOptimizerPass
@@ -112,6 +223,11 @@ public:
 
     for (ttnn::GridSampleOp gsOp : gsOps) {
       ++scanned;
+
+      if (feedRank5GridDirectly(gsOp)) {
+        ++optimized;
+        continue;
+      }
 
       Value gridVal = gsOp.getGrid();
       auto *gridDef = gridVal.getDefiningOp();
