@@ -250,7 +250,8 @@ getPoolingOpConstraints(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-      op.getConfigTensorsInDram(), opConfig.outputLayout);
+      op.getConfigTensorsInDram(), opConfig.outputLayout,
+      op.getDeallocateInput());
 }
 
 template <typename OpT>
@@ -266,7 +267,8 @@ getPoolingOpRuntime(OpT op, const std::vector<TTNNLayoutAttr> &inputs,
       op.getBatchSize(), op.getInputHeight(), op.getInputWidth(),
       op.getChannels(), op.getKernelSize(), op.getStride(), op.getPadding(),
       op.getDilation(), op.getCeilMode(), op.getReallocateHaloOutput(),
-      op.getConfigTensorsInDram(), opConfig.outputLayout);
+      op.getConfigTensorsInDram(), opConfig.outputLayout,
+      op.getDeallocateInput());
 }
 
 template <typename OpT>

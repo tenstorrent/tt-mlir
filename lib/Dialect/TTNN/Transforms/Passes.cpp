@@ -154,6 +154,15 @@ public:
       // 'deallocate_activation' in Conv2dConfig is set to true.
       bool skipDeallocation =
           llvm::TypeSwitch<Operation *, bool>(lastOp)
+              // ttnn::reallocate frees its input buffer itself.
+              .Case<ttnn::ReallocateOp>([&](ttnn::ReallocateOp reallocOp) {
+                return reallocOp.getInput() == value;
+              })
+              // A pool with deallocate_input frees its input after the halo.
+              .Case<ttnn::MaxPool2dOp, ttnn::AvgPool2dOp>([&](auto poolOp) {
+                return poolOp.getInput() == value &&
+                       poolOp.getDeallocateInput();
+              })
               .Case<ttnn::Conv2dOp, ttnn::ConvTranspose2dOp>([&](auto convOp) {
                 return convOp.getInput() == value &&
                        convOp.getConv2dConfigAttr() &&
@@ -184,6 +193,25 @@ public:
       }
       assert(func.getBody().hasOneBlock() &&
              "found func that didn't have one block!");
+      // A pool op may free its own input (deallocate_input). The flag was set
+      // by the optimizer when the pool was the input's only user; later
+      // passes may have added users (spill copies, reshards), so re-check
+      // here and drop the flag rather than risk a use-after-free.
+      func.walk([&](Operation *op) {
+        if (!mlir::isa<ttnn::MaxPool2dOp, ttnn::AvgPool2dOp>(op) ||
+            !op->getAttrOfType<BoolAttr>("deallocate_input") ||
+            !op->getAttrOfType<BoolAttr>("deallocate_input").getValue()) {
+          return;
+        }
+        Value input = op->getOperand(0);
+        for (Operation *user : input.getUsers()) {
+          if (user != op && !mlir::isa<ttnn::DeallocateOp>(user)) {
+            op->setAttr("deallocate_input", rewriter.getBoolAttr(false));
+            return;
+          }
+        }
+      });
+
       Liveness liveness(func.getOperation());
       const LivenessBlockInfo *livenessInfo =
           liveness.getLiveness(&func.getBody().front());

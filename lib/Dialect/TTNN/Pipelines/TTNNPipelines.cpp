@@ -719,6 +719,7 @@ void createTTNNCommonToEmitCPipeline(
     pm.addPass(createTTNNDumpModule(dumpOptions));
   }
 
+  pm.addPass(createTTNNUnfuseBinaryActivation());
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
@@ -740,6 +741,7 @@ void createTTNNCommonToEmitPyPipeline(
   }
 
   // Apply EmitPy-specific workarounds before conversion
+  devicePm.addPass(createTTNNUnfuseBinaryActivation());
   devicePm.addPass(createTTNNEmitPyWorkarounds());
 
   if (options.targetModule) {

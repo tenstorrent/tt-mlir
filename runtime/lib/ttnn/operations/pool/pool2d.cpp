@@ -72,7 +72,7 @@ void runAvgPool2dOp(
              /*divisor_override=*/std::nullopt, outputMemoryConfig,
              /*dram_slice_config=*/std::nullopt, appliedShardScheme,
              computeKernelConfig,
-             /*deallocate_input=*/false,
+             /*deallocate_input=*/op->deallocate_input(),
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
              ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
              /*config_tensor_in_dram=*/op->config_tensors_in_dram());
@@ -129,7 +129,7 @@ void runMaxPool2dOp(
              op->channels(), kernelSize, stride, padding, dilation,
              op->ceil_mode(), outputMemoryConfig,
              /*dram_slice_config=*/std::nullopt, appliedShardScheme,
-             /*deallocate_input=*/false,
+             /*deallocate_input=*/op->deallocate_input(),
              /*reallocate_halo_output=*/op->reallocate_halo_output(),
              /*return_indices=*/false, ::ttnn::DataType::BFLOAT16,
              ::ttnn::Layout::ROW_MAJOR,

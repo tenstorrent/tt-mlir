@@ -36,6 +36,12 @@ table ToMemoryConfigOp {
   out: tt.target.ttnn.TensorRef;
 }
 
+table ReallocateOp {
+  in0: tt.target.ttnn.TensorRef;
+  memcfg: tt.target.ttnn.MemoryConfig;
+  out: tt.target.ttnn.TensorRef;
+}
+
 table TypecastOp {
   in: tt.target.ttnn.TensorRef;
   dtype: tt.target.DataType;

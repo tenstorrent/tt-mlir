@@ -220,6 +220,18 @@ createOp(FlatbufferObjectCache &cache, ToMemoryConfigOp op) {
                                                     memoryConfig, output);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::ReallocateOp>
+createOp(FlatbufferObjectCache &cache, ReallocateOp op) {
+  auto input = cache.at<::tt::target::ttnn::TensorRef>(
+      getOperandThroughDPSOps(op.getInput()));
+  auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
+  auto output =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  return ::tt::target::ttnn::CreateReallocateOp(*cache.fbb, input,
+                                                memoryConfig, output);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::ToLayoutOp>
 createOp(FlatbufferObjectCache &cache, ToLayoutOp op) {
   auto input = cache.at<::tt::target::ttnn::TensorRef>(
@@ -2201,8 +2213,14 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
-  return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out);
+  ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam> postActivation = 0;
+  if (auto act = op.getPostActivationAttr()) {
+    postActivation = toFlatbuffer(cache, act);
+  }
+
+  return ::tt::target::ttnn::CreateEltwiseBinaryOp(*cache.fbb, type, lhs, rhs,
+                                                   outputDtype, memoryConfig,
+                                                   out, postActivation);
 }
 
 template <typename EltwiseBinaryCompositeOp>
@@ -3072,7 +3090,8 @@ createPool2dOp(FlatbufferObjectCache &cache, Pool2dOp op) {
       op.getInputWidth(), op.getChannels(), kernelSize, stride, padding,
       dilation, extraParamsType, extraParams, memoryConfig,
       toFlatbuffer(cache, op.getAppliedShardScheme()), op.getCeilMode(),
-      op.getReallocateHaloOutput(), configTensorsInDram);
+      op.getReallocateHaloOutput(), configTensorsInDram,
+      op.getDeallocateInput());
 }
 
 ::flatbuffers::Offset<::tt::target::ttnn::MaxPool2dWithIndicesOp>
@@ -4347,6 +4366,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
       toMemoryConfigOp) {
     return createOperation(cache, createOp(cache, toMemoryConfigOp),
                            debugString, locInfo);
+  }
+  if (auto reallocateOp = dyn_cast<ReallocateOp>(op); reallocateOp) {
+    return createOperation(cache, createOp(cache, reallocateOp), debugString,
+                           locInfo);
   }
   if (auto toLayoutOp = dyn_cast<ToLayoutOp>(op); toLayoutOp) {
     return createOperation(cache, createOp(cache, toLayoutOp), debugString,

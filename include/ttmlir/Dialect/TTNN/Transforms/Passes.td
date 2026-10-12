@@ -494,6 +494,15 @@ def TTNNAdjustDeallocs: Pass<"ttnn-adjust-deallocs", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNUnfuseBinaryActivation: Pass<"ttnn-unfuse-binary-activation", "::mlir::ModuleOp"> {
+  let summary = "Split a binary op's fused post activation into a separate unary op.";
+  let description = [{
+    The flatbuffer runtime applies a binary op's `post_activation` inside the
+    kernel; the C++ and Python emitters do not pass it, so this pass restores
+    the explicit activation op before those conversions.
+  }];
+}
+
 def TTNNForceFinalDeallocs: Pass<"ttnn-force-final-deallocs", "::mlir::ModuleOp"> {
   let summary = "Force the final deallocation of each aliased device buffer.";
   let description = [{

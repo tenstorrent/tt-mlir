@@ -37,6 +37,7 @@ table Pool2dOp {
   ceil_mode: bool = false;
   reallocate_halo_output: bool = true;
   config_tensors_in_dram: bool = false;
+  deallocate_input: bool = false;
 }
 
 table UniformScale2D {

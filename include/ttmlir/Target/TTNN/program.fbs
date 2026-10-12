@@ -147,6 +147,7 @@ union OpType {
   ToDeviceOp,
   ToLayoutOp,
   ToMemoryConfigOp,
+  ReallocateOp,
   TransposeOp,
   TypecastOp,
   UpdateCacheOp,

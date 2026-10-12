@@ -176,6 +176,44 @@ private:
   }
 };
 
+// Fuses a unary activation that follows an elementwise binary op into the
+// binary op's `post_activation`: tt-metal applies it inside the binary kernel.
+template <typename BinaryOp, typename ActivationOp>
+class TTNNBinaryWithActivation : public mlir::OpRewritePattern<BinaryOp> {
+  using mlir::OpRewritePattern<BinaryOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(BinaryOp srcOp, mlir::PatternRewriter &rewriter) const final {
+    static const bool disabled = [] {
+      const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+      return env && llvm::StringRef(env).contains("binary_activation_fuse");
+    }();
+    if (disabled || srcOp.getPostActivationAttr() ||
+        !srcOp.getResult().hasOneUse() ||
+        !ttmlir::utils::allUsersOfType<ActivationOp>(srcOp)) {
+      return failure();
+    }
+    ActivationOp activationOp =
+        mlir::cast<ActivationOp>(*srcOp.getResult().getUsers().begin());
+    if (activationOp.getResult().getType() != srcOp.getResult().getType()) {
+      return failure();
+    }
+    llvm::StringLiteral fullOpName = ActivationOp::getOperationName();
+    llvm::StringRef opName = fullOpName.rsplit('.').second;
+    auto opType = ttnn::symbolizeUnaryOpType(opName);
+    if (!opType) {
+      return failure();
+    }
+    rewriter.modifyOpInPlace(srcOp, [&]() {
+      srcOp.setPostActivationAttr(
+          UnaryWithParamAttr::get(rewriter.getContext(), *opType, {}));
+    });
+    rewriter.replaceOp(activationOp, srcOp.getResult());
+    return mlir::success();
+  }
+};
+
 #ifdef TTMLIR_ENABLE_OPMODEL
 
 // ============================================================================
@@ -443,7 +481,9 @@ public:
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SiluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, GeluOp>,
-        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>>(&getContext());
+        TTNNMatmulAndLinearWithActivation<LinearOp, GeluOp>,
+        TTNNBinaryWithActivation<AddOp, Relu6Op>,
+        TTNNBinaryWithActivation<AddOp, ReluOp>>(&getContext());
 
 #ifdef TTMLIR_ENABLE_OPMODEL
     if (enableOpConstraints) {

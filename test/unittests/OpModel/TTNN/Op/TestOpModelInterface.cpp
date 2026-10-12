@@ -3891,7 +3891,7 @@ TEST_F(OpModelBase, maxPool2DOp) {
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
       inputWidth, numChannels, kernelSize, stride, padding, dilation,
       appliedShardScheme, ceilMode, reallocateHaloOutput,
-      /*config_tensors_in_dram=*/nullptr);
+      /*deallocate_input=*/false, /*config_tensors_in_dram=*/nullptr);
   maxPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   constexpr int32_t numRuns = 10;
@@ -3961,7 +3961,8 @@ TEST_F(OpModelBase, avgPool2DOp) {
       builder.getUnknownLoc(), output.getType(), input, batchSize, inputHeight,
       inputWidth, numChannels, kernelSize, stride, padding, dilation,
       appliedShardScheme, ceilMode, reallocateHaloOutput,
-      /*count_include_pad=*/true, /*config_tensors_in_dram=*/nullptr);
+      /*deallocate_input=*/false, /*count_include_pad=*/true,
+      /*config_tensors_in_dram=*/nullptr);
   avgPool2DOp->setAttr(ttcore::DeviceAttr::name, getFakeDeviceAttr());
 
   auto backend = dyn_cast<OpModel>(avgPool2DOp.getOperation());

@@ -56,6 +56,23 @@ def TTNN_ToMemoryConfigOp : TTNN_Op<"to_memory_config"> {
     let hasFolder = 1;
 }
 
+def TTNN_ReallocateOp : TTNN_Op<"reallocate", [OpModelExempt, SameOperandsAndResultType]> {
+    let summary = "Reallocate op.";
+    let description = [{
+      Moves the input tensor into a freshly allocated buffer with the same
+      layout and memory config (ttnn::reallocate) and frees the old buffer.
+      The result is the same tensor; only its address changes. Inserted by the
+      L1 spill management pass to compact L1 in front of an op whose internal
+      buffers need a contiguous region that the current placement of the live
+      tensors cannot offer (e.g. the halo buffer of a sharded conv2d). Every
+      later use of the input must read the result: ttnn::reallocate
+      deallocates its input.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input);
+    let results = (outs AnyRankedTensor:$result);
+}
+
 def TTNN_ToLayoutOp : TTNN_Op<"to_layout", [TTNN_LayoutOpInterface]> {
     let summary = "ToLayout op.";
     let description = [{
@@ -196,12 +213,23 @@ class TTNN_ElementwiseBinaryOp<string mnemonic, list<Trait> traits = []> :
     TTNN_Op<mnemonic, [TTNN_ElementwiseBinary] # traits> {
     let summary = "Eltwise binary op.";
     let description = [{
-      Eltwise binary op.
+      Eltwise binary op. `post_activation` is a unary activation tt-metal
+      applies to the result inside the binary kernel (fused by the TTNN
+      fusing pass from a following activation op).
     }];
 
     let arguments = (ins AnyRankedTensor:$lhs,
-                         AnyRankedTensor:$rhs);
+                         AnyRankedTensor:$rhs,
+                         OptionalAttr<UnaryWithParamAttr>:$post_activation);
     let results = (outs AnyRankedTensor:$result);
+
+    let builders = [
+      OpBuilder<(ins "::mlir::Type":$result, "::mlir::Value":$lhs,
+                     "::mlir::Value":$rhs), [{
+        build($_builder, $_state, result, lhs, rhs,
+              /*post_activation=*/::mlir::tt::ttnn::UnaryWithParamAttr());
+      }]>
+    ];
 
     let extraClassDeclaration = [{
       wa::TTNNOperandsWorkarounds getOperandsWorkarounds() {
@@ -2485,6 +2513,7 @@ def TTNN_AvgPool2dOp : TTNN_Op<"avg_pool2d"> {
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
                          DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
+                         DefaultValuedAttr<BoolAttr, "false">:$deallocate_input,
                          DefaultValuedAttr<BoolAttr, "true">:$count_include_pad,
                          OptionalAttr<BoolAttr>:$config_tensors_in_dram);
 
@@ -2517,6 +2546,7 @@ def TTNN_MaxPool2dOp : TTNN_Op<"max_pool2d"> {
                          OptionalAttr<TTNN_TensorMemoryLayoutAttr>:$applied_shard_scheme,
                          BoolAttr:$ceil_mode,
                          DefaultValuedAttr<BoolAttr, "true">:$reallocate_halo_output,
+                         DefaultValuedAttr<BoolAttr, "false">:$deallocate_input,
                          OptionalAttr<BoolAttr>:$config_tensors_in_dram);
 
     let results = (outs AnyRankedTensor:$result);

@@ -85,6 +85,8 @@ public:
 
     // Set default L1Full slice config on Conv2d ops before validation.
     applyConvSliceConfig(moduleOp);
+    // Let single-use pool inputs be freed inside the pool (lower L1 peak).
+    applyPoolDeallocateInput(moduleOp);
 
     // Get the max grid size from the system description.
     ttcore::GridAttr deviceGrid =

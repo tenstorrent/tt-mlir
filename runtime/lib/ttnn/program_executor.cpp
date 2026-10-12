@@ -84,6 +84,7 @@
 #include "operations/layout/to_device.h"
 #include "operations/layout/to_layout.h"
 #include "operations/layout/to_memory_config.h"
+#include "operations/layout/reallocate.h"
 #include "operations/layout/typecast.h"
 #include "operations/matmul/matmul.h"
 #include "operations/mlir_native/func_call.h"
@@ -338,6 +339,9 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   case ::tt::target::ttnn::OpType::ToMemoryConfigOp: {
     return operations::layout::run(op->type_as_ToMemoryConfigOp(),
                                    getContext());
+  }
+  case ::tt::target::ttnn::OpType::ReallocateOp: {
+    return operations::layout::run(op->type_as_ReallocateOp(), getContext());
   }
   case ::tt::target::ttnn::OpType::ToLayoutOp: {
     return operations::layout::run(op->type_as_ToLayoutOp(), getContext());

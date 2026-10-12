@@ -685,6 +685,7 @@ public:
         emitter.emit(srcOp.getAppliedShardScheme(), "applied_shard_scheme"),
         emitter.emit(std::nullopt, "compute_kernel_config"),
         emitter.emit(srcOp.getReallocateHaloOutput(), "reallocate_halo_output"),
+        emitter.emit(srcOp.getDeallocateInput(), "deallocate_input"),
         emitter.emit(srcOp.getConfigTensorsInDram(), "config_tensor_in_dram"),
     };
 
@@ -741,6 +742,7 @@ public:
                      "applied_shard_scheme"),
         emitter.emit(maxPool2dOp.getReallocateHaloOutput(),
                      "reallocate_halo_output"),
+        emitter.emit(maxPool2dOp.getDeallocateInput(), "deallocate_input"),
         emitter.emit(maxPool2dOp.getConfigTensorsInDram(),
                      "config_tensor_in_dram"),
     };
@@ -1374,6 +1376,35 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ToMemoryConfigOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// ReallocateOp conversion pattern
+//
+namespace {
+class ReallocateOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<mlir::tt::ttnn::ReallocateOp> {
+
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::ReallocateOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ReallocateOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::ReallocateOp> emitter(
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
@@ -5608,6 +5639,7 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                ToDeviceOpConversionPattern,
                ToLayoutOpConversionPattern,
                ToMemoryConfigOpConversionPattern,
+               ReallocateOpConversionPattern,
                TypecastOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on

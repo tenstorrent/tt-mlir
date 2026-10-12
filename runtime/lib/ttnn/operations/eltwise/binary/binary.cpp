@@ -34,19 +34,51 @@ static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
+// Add / subtract / multiply accept fused activations applied to the result
+// inside the binary kernel.
+template <typename Fn>
+static void
+runEltwiseBinaryOpWithActivations(const ::tt::target::ttnn::EltwiseBinaryOp *op,
+                                  ProgramTensorPool &tensorPool, Fn &&ttnnOp) {
+  if (!op->post_activation()) {
+    runEltwiseBinaryOp(op, tensorPool, std::forward<Fn>(ttnnOp));
+    return;
+  }
+  ::ttnn::Tensor *lhs = &(tensorPool.getTTNNTensorAndValidate(op->lhs()));
+  ::ttnn::Tensor *rhs = &(tensorPool.getTTNNTensorAndValidate(op->rhs()));
+
+  std::optional<::ttnn::DataType> outputDataType = std::nullopt;
+  if (op->output_dtype()) {
+    outputDataType =
+        ::tt::runtime::ttnn::utils::toTTNNDataType(*(op->output_dtype()));
+  }
+  std::optional<::ttnn::MemoryConfig> outputMemoryConfig =
+      ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
+          op->memory_config());
+  LOG_ASSERT(::tt::runtime::ttnn::utils::inSystemMemory(op->out()) ||
+                 outputMemoryConfig.has_value(),
+             "Memory config must exist for device tensors");
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> postActivations;
+  postActivations.push_back(
+      utils::toTTNNUnaryWithParam(*op->post_activation()));
+  ::ttnn::Tensor out = ttnnOp(*lhs, *rhs, outputDataType, outputMemoryConfig,
+                              std::nullopt, postActivations);
+  tensorPool.insertTTNNTensorAndValidate(op->out(), out);
+}
+
 void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseBinaryOpType::Add: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+    runEltwiseBinaryOpWithActivations(op, tensorPool, [](auto &&...args) {
       return ::ttnn::add(std::forward<decltype(args)>(args)...);
     });
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+    runEltwiseBinaryOpWithActivations(op, tensorPool, [](auto &&...args) {
       return ::ttnn::multiply(std::forward<decltype(args)>(args)...);
     });
     break;
@@ -58,7 +90,7 @@ void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Subtract: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+    runEltwiseBinaryOpWithActivations(op, tensorPool, [](auto &&...args) {
       return ::ttnn::subtract(std::forward<decltype(args)>(args)...);
     });
     break;

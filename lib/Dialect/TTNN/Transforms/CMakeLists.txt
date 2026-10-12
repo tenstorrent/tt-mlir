@@ -51,6 +51,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/TTNNPrepareConv3dWeights.cpp
         TTNNAdjustDeallocs.cpp
         TTNNForceFinalDeallocs.cpp
+        TTNNUnfuseBinaryActivation.cpp
         TTNNAllocateDistributedOpBuffers.cpp
         TTNNAllocateDistributedOpSemaphores.cpp
         TTNNCollaspeD2M.cpp

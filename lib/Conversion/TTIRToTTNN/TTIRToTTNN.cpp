@@ -2501,7 +2501,8 @@ public:
           input, batchSize, inputHeight, inputWidth, channels, kernelSizeAttr,
           strideAttr, paddingAttr, dilationAttr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false, adaptor.getCountIncludePad(),
+          /* in_place_halo=*/false, /*deallocate_input=*/false,
+          adaptor.getCountIncludePad(),
           /*config_tensors_in_dram=*/rewriter.getBoolAttr(true));
     } else if constexpr (std::is_same_v<TTIROpTy, ttir::MaxPool2dOp>) {
       rewriter.replaceOpWithNewOp<TTNNOpTy>(
@@ -2509,7 +2510,7 @@ public:
           input, batchSize, inputHeight, inputWidth, channels, kernelSizeAttr,
           strideAttr, paddingAttr, dilationAttr,
           /* applied_shard_scheme=*/nullptr, adaptor.getCeilMode(),
-          /* in_place_halo=*/false,
+          /* in_place_halo=*/false, /*deallocate_input=*/false,
           /*config_tensors_in_dram=*/rewriter.getBoolAttr(true));
     } else if constexpr (std::is_same_v<TTIROpTy,
                                         ttir::MaxPool2dWithIndicesOp>) {

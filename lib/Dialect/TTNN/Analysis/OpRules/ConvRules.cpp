@@ -3,12 +3,15 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include <algorithm>
+#include <cstdlib>
 #include "ttmlir/Dialect/TTNN/Analysis/OpRules/ConvRules.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Utils/Conv2dConfigParams.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Support/Logger.h"
+#include "llvm/ADT/StringRef.h"
 
 namespace mlir::tt::ttnn {
 
@@ -292,6 +295,47 @@ void applyConvSliceConfig(ModuleOp moduleOp) {
 
     conv2dOp.setConv2dSliceConfigAttr(
         Conv2dSliceConfigAttr::get(conv2dOp.getContext(), sliceType, 0));
+  });
+}
+
+// A pool op keeps its input, the halo'd copy of the input and its output
+// alive at the same time unless it is told to free the input after the halo
+// (ttnn deallocate_input). For a large sharded input that sum exceeds the L1
+// validation limit while the real need (input + halo, then halo + output)
+// does not, and the optimizer then falls back to a DRAM input for the pool.
+// When the pool is the only user of its input nothing else needs the input
+// afterwards, so freeing it inside the op is safe; the deallocation pass
+// re-checks the single-use condition and skips its own deallocate.
+static bool poolDeallocInputDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("pool_dealloc_input");
+  }();
+  return disabled;
+}
+
+void applyPoolDeallocateInput(ModuleOp moduleOp) {
+  if (poolDeallocInputDisabled()) {
+    return;
+  }
+  moduleOp->walk([](Operation *op) {
+    if (!mlir::isa<MaxPool2dOp, AvgPool2dOp>(op)) {
+      return;
+    }
+    Value input = op->getOperand(0);
+    // Only device tensors produced inside the function: a block argument or
+    // a constant is owned by the caller / const-eval and must not be freed.
+    if (!input.getDefiningOp() || !input.hasOneUse()) {
+      return;
+    }
+    if (mlir::isa<ttcore::LoadCachedOp>(input.getDefiningOp())) {
+      return;
+    }
+    op->setAttr("deallocate_input",
+                BoolAttr::get(op->getContext(), true));
+    TTMLIR_DEBUG(ttmlir::LogComponent::GreedyOptimizer,
+                 "applyPoolDeallocateInput: {} frees its single-use input",
+                 ttmlir::opToString(op));
   });
 }
 

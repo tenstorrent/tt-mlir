@@ -843,7 +843,7 @@ public:
         /*dram_slice_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getAppliedShardScheme()),
         emitter.emit(/*compute_kernel_config=*/std::nullopt),
-        emitter.emit(/*deallocate_input=*/false),
+        emitter.emit(/*deallocate_input=*/srcOp.getDeallocateInput()),
         emitter.emit(
             /*reallocate_halo_output=*/srcOp.getReallocateHaloOutput()),
     };
@@ -899,7 +899,7 @@ public:
         emitter.emit(srcOp.getMemoryConfigAttr()),
         /*dram_slice_config=*/emitter.emit(std::nullopt),
         emitter.emit(srcOp.getAppliedShardScheme()),
-        emitter.emit(/*deallocate_input=*/false),
+        emitter.emit(/*deallocate_input=*/srcOp.getDeallocateInput()),
         emitter.emit(
             /*reallocate_halo_output=*/srcOp.getReallocateHaloOutput()),
         /*return_indices=*/emitter.emit(false),
@@ -2415,6 +2415,35 @@ public:
                   ConversionPatternRewriter &rewriter) const override {
 
     ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ToMemoryConfigOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// ReallocateOp conversion pattern
+//
+namespace {
+class ReallocateOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ReallocateOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ReallocateOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ReallocateOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ReallocateOp> emitter(
         srcOp, adaptor, rewriter);
 
     llvm::SmallVector<mlir::Attribute> args{
@@ -5900,6 +5929,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
   // clang-format off
   patterns.add<ToLayoutOpConversionPattern,
                ToMemoryConfigOpConversionPattern,
+               ReallocateOpConversionPattern,
                TypecastOpConversionPattern,
                ToDeviceOpConversionPattern,
                FromDeviceOpConversionPattern,

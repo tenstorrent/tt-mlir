@@ -6157,7 +6157,8 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout,
+    bool deallocateInput) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -6186,7 +6187,7 @@ llvm::Expected<OpConstraints> OpModel<MaxPool2dOp>::getOpConstraints(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
-        std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
+        std::nullopt /* applied_shard_scheme */, deallocateInput /* deallocate_input */,
         reallocateHaloOutput, false /* return_indices */,
         ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
         configTensorsInDram.value_or(false) /* config_tensors_in_dram */);
@@ -6204,7 +6205,8 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout,
+    bool deallocateInput) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -6232,7 +6234,7 @@ llvm::Expected<size_t> OpModel<MaxPool2dOp>::getOpRuntime(
         conversion::convertLLVMArrayRefToStdArray<uint32_t, 2>(dilation),
         ceilMode, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
-        std::nullopt /* applied_shard_scheme */, false /* deallocate_input */,
+        std::nullopt /* applied_shard_scheme */, deallocateInput /* deallocate_input */,
         reallocateHaloOutput, false /* return_indices */,
         ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
         configTensorsInDram.value_or(false) /* config_tensors_in_dram */);
@@ -6352,7 +6354,8 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout,
+    bool deallocateInput) {
 
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
@@ -6388,7 +6391,7 @@ llvm::Expected<OpConstraints> OpModel<AvgPool2dOp>::getOpConstraints(
         divisorOverride, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        false /* deallocate_input */, reallocateHaloOutput,
+        deallocateInput /* deallocate_input */, reallocateHaloOutput,
         ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
         configTensorsInDram.value_or(false) /* config_tensors_in_dram */);
   };
@@ -6405,7 +6408,8 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
     int32_t inputChannels, llvm::ArrayRef<int32_t> kernelSize,
     llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
     llvm::ArrayRef<int32_t> dilation, bool ceilMode, bool reallocateHaloOutput,
-    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout) {
+    std::optional<bool> configTensorsInDram, TTNNLayoutAttr outputLayout,
+    bool deallocateInput) {
 #ifdef TTMLIR_ENABLE_OPMODEL
   ::tt::tt_metal::distributed::MeshDevice *device =
       SingletonDeviceContext::getInstance().getDevice();
@@ -6440,7 +6444,7 @@ llvm::Expected<size_t> OpModel<AvgPool2dOp>::getOpRuntime(
         divisorOverride, detail::getNullableMemoryConfig(outputLayout),
         std::nullopt /* dram_slice_config */,
         std::nullopt /* applied_shard_scheme */, computeKernelConfig,
-        false /* deallocate_input */, reallocateHaloOutput,
+        deallocateInput /* deallocate_input */, reallocateHaloOutput,
         ::ttnn::DataType::BFLOAT16, ::ttnn::Layout::ROW_MAJOR,
         configTensorsInDram.value_or(false) /* config_tensors_in_dram */);
   };

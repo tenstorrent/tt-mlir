@@ -1540,7 +1540,7 @@ struct OpModel<MaxPool2dOp> {
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
       llvm::ArrayRef<int32_t> dilation, bool ceilMode,
       bool reallocateHaloOutput, std::optional<bool> configTensorsInDram,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout, bool deallocateInput = false);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1550,7 +1550,7 @@ struct OpModel<MaxPool2dOp> {
                llvm::ArrayRef<int32_t> dilation, bool ceilMode,
                bool reallocateHaloOutput,
                std::optional<bool> configTensorsInDram,
-               TTNNLayoutAttr outputLayout);
+               TTNNLayoutAttr outputLayout, bool deallocateInput = false);
 };
 
 //===----------------------------------------------------------------------===//
@@ -1592,7 +1592,7 @@ struct OpModel<AvgPool2dOp> {
       llvm::ArrayRef<int32_t> stride, llvm::ArrayRef<int32_t> padding,
       llvm::ArrayRef<int32_t> dilation, bool ceilMode,
       bool reallocateHaloOutput, std::optional<bool> configTensorsInDram,
-      TTNNLayoutAttr outputLayout);
+      TTNNLayoutAttr outputLayout, bool deallocateInput = false);
 
   static llvm::Expected<size_t>
   getOpRuntime(llvm::ArrayRef<int64_t> inputShape, TTNNLayoutAttr inputLayout,
@@ -1602,7 +1602,7 @@ struct OpModel<AvgPool2dOp> {
                llvm::ArrayRef<int32_t> dilation, bool ceilMode,
                bool reallocateHaloOutput,
                std::optional<bool> configTensorsInDram,
-               TTNNLayoutAttr outputLayout);
+               TTNNLayoutAttr outputLayout, bool deallocateInput = false);
 };
 
 //===----------------------------------------------------------------------===//

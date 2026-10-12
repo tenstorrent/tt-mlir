@@ -79,6 +79,12 @@ struct Conv3dRuleBook : OpRuleBook {
 /// Set L1Full slice config on all Conv2d ops before validation.
 void applyConvSliceConfig(ModuleOp moduleOp);
 
+/// Let a pool op free its input after the halo (deallocate_input) when the
+/// pool is the only user of that input. Lowers the pool's L1 peak the op
+/// model reports (input and halo are no longer counted together with the
+/// output), so a sharded L1 input can pass validation.
+void applyPoolDeallocateInput(ModuleOp moduleOp);
+
 /// Disable deallocate_activation for conv ops with multi-use inputs.
 void fixupConvDeallocate(func::FuncOp func);
 
