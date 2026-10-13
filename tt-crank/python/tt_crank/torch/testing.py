@@ -9,9 +9,10 @@ Test-time helpers for the tt-crank torch backend.
 import enum
 import os
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import contextmanager, nullcontext
 from typing import Any
 
+import pytest
 import torch
 import torch.fx
 from tt_crank.torch._compile import CompileOption
@@ -40,6 +41,22 @@ class ExecutionMode(enum.Enum):
     COMPILE = "compile"
 
 
+# tt-mlir resolves the ttml composites (sdpa, rmsnorm) by optimization level: 0 inlines
+# crank's plain-TTIR decomposition, 1 promotes to the ttml kernels. Eager compiles at 0.
+OPT_MODES: dict[str, dict[CompileOption, Any] | None] = {
+    "eager": None,
+    "compile": {CompileOption.OPT_LEVEL: 1},
+    "compile-opt0": {CompileOption.OPT_LEVEL: 0},
+}
+# Any OPT_LEVEL 1 compile aborts the process under ttsim, so those cases cannot even run there.
+OPT1_ON_SIM = pytest.mark.xfail(
+    os.environ.get("TT_CRANK_USE_SIMULATOR") == "1",
+    reason="OPT_LEVEL 1 aborts under ttsim",
+    run=False,
+)
+OPT1_COMPILE = pytest.param("compile", marks=OPT1_ON_SIM)
+
+
 @contextmanager
 def strict_no_fallback() -> Iterator[None]:
     """Make the global CPU fallback raise instead of running, for the body.
@@ -55,6 +72,33 @@ def strict_no_fallback() -> Iterator[None]:
         yield
     finally:
         _native.set_fallback_strict(previous)
+
+
+def run_backward(
+    mode: str,
+    fn: Callable[..., torch.Tensor],
+    *tt_args: Any,
+    strict: bool = True,
+    options: dict[CompileOption, Any] | None = None,
+) -> set[str]:
+    """Run ``fn(*tt_args).backward()`` in an :data:`OPT_MODES` mode; return the post-aot op
+    names (empty under eager). ``options`` adds to the mode's compile options.
+    """
+    ops: set[str] = set()
+    if mode == "eager":
+        with strict_no_fallback() if strict else nullcontext():
+            fn(*tt_args).backward()
+        return ops
+
+    def record(gm: torch.fx.GraphModule) -> None:
+        ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
+
+    compile_options = {**OPT_MODES[mode], **(options or {})}
+    with post_aot_fx_hook(record):
+        torch.compile(fn, backend="tt", fullgraph=True, options=compile_options)(
+            *tt_args
+        ).backward()
+    return ops
 
 
 def assert_close_cpu_vs_tt(

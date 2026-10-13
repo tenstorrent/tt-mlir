@@ -628,6 +628,19 @@ build_sdpa_bw(ModuleBuilder &mb, mlir::Value grad_output, mlir::Value attn_outpu
               mlir::Value value, mlir::Value logsumexp, bool is_causal, std::optional<double> scale,
               mlir::Value attn_mask);
 
+// ttir.rms_norm over the last dim (lowers to ttnn.rms_norm); no rstd. Weight is cast to the input dtype.
+TT_CRANK_API mlir::Value build_rms_norm(ModuleBuilder &mb, mlir::Value input, mlir::Value weight, double eps);
+
+// ttml `rmsnorm_fw` composite; bf16 input and weight only. Returns `(output, rstd)`, rstd fp32 keepdim.
+// ttml promotes only `stats_in_f32 = false`.
+TT_CRANK_API std::pair<mlir::Value, mlir::Value> build_rmsnorm_fw(ModuleBuilder &mb, mlir::Value input,
+                                                                  mlir::Value weight, double eps, bool stats_in_f32);
+
+// ttml `rmsnorm_bw` composite; bf16 input and weight only. grad_weight is null when weight is.
+TT_CRANK_API std::pair<mlir::Value, mlir::Value> build_rmsnorm_bw(ModuleBuilder &mb, mlir::Value grad_output,
+                                                                  mlir::Value input, mlir::Value rstd,
+                                                                  mlir::Value weight, bool stats_in_f32);
+
 // One fused AdamW step (`ttir.adamw`). `step`/`lr` are single-element tensors; grad is cast to bf16.
 // `max_exp_avg_sq` null = amsgrad off; then the last result is null too.
 TT_CRANK_API std::array<mlir::Value, 4> build_adamw(ModuleBuilder &mb, mlir::Value param, mlir::Value grad,

@@ -4,15 +4,18 @@
 
 from __future__ import annotations
 
-import contextlib
-import os
-
 import pytest
 import torch
 import torch.nn.functional as F
 
-from tt_crank.torch._compile import CompileOption
-from tt_crank.torch.testing import post_aot_fx_hook, strict_no_fallback
+from tt_crank.torch.testing import (
+    OPT1_COMPILE,
+    OPT1_ON_SIM,
+    OPT_MODES,
+    post_aot_fx_hook,
+    run_backward,
+    strict_no_fallback,
+)
 
 # Present in the post-aot graph iff torch doesn't decompose the
 # `torch.nn.functional.scaled_dot_product_attention` op - this is prevented by
@@ -141,20 +144,6 @@ def test_sdpa_multi_chip(tt_pg, parallel: str, masked: bool, mode: str) -> None:
     assert _pcc(got, ref) >= _PCC
 
 
-# tt-mlir resolves the sdpa_fw/sdpa_bw composites by optimization level: 0 inlines
-# crank's plain-TTIR decomposition, 1 promotes to the ttml kernels. Eager compiles at 0.
-_OPT = {
-    "eager": None,
-    "compile": {CompileOption.OPT_LEVEL: 1},
-    "compile-opt0": {CompileOption.OPT_LEVEL: 0},
-}
-# Any OPT_LEVEL 1 compile aborts the process under ttsim, so the promotion cases cannot even run there.
-_SIM = os.environ.get("TT_CRANK_USE_SIMULATOR") == "1"
-_OPT1_ON_SIM = pytest.mark.xfail(
-    _SIM, reason="OPT_LEVEL 1 aborts under ttsim", run=False
-)
-_COMPILE = pytest.param("compile", marks=_OPT1_ON_SIM)
-_OPT_MODES = [_COMPILE if m == "compile" else m for m in _OPT]
 # Eager MATH sdpa backward hits the unary f32/bf16 DataType mismatch that the debug runtime asserts on (#9344, was #7930).
 _EAGER_DECOMPOSE = pytest.param(
     "eager",
@@ -163,25 +152,6 @@ _EAGER_DECOMPOSE = pytest.param(
         reason="#9344: ttnn.isfinite returns f32 for bf16, debug runtime asserts (MATH backward)",
     ),
 )
-
-
-def _run_backward(mode: str, fn, *tt_args, strict: bool = True) -> set[str]:
-    """Run `fn(*tt_args).backward()`; return the post-aot op names (empty under eager)."""
-    ops: set[str] = set()
-    if mode == "eager":
-        with strict_no_fallback() if strict else contextlib.nullcontext():
-            fn(*tt_args).backward()
-        return ops
-
-    def record(gm):
-        ops.update(str(n.target) for n in gm.graph.nodes if n.op == "call_function")
-
-    with post_aot_fx_hook(record):
-        torch.compile(fn, backend="tt", fullgraph=True, options=_OPT[mode])(
-            *tt_args
-        ).backward()
-    torch._dynamo.reset()
-    return ops
 
 
 def _check_grads(tts, refs, pcc: float = _PCC) -> None:
@@ -251,7 +221,7 @@ _FUSED_CASES = {
 }
 
 
-@pytest.mark.parametrize("mode", _OPT_MODES)
+@pytest.mark.parametrize("mode", ["eager", OPT1_COMPILE, "compile-opt0"])
 @pytest.mark.parametrize("case", list(_FUSED_CASES), ids=list(_FUSED_CASES))
 def test_sdpa_backward_fused(case: str, mode: str) -> None:
     """Training within ttml's reach stays on the fused ttml pair and matches CPU."""
@@ -281,7 +251,7 @@ def test_sdpa_backward_fused(case: str, mode: str) -> None:
         outs.append(F.scaled_dot_product_attention(a, b, c, **tt_kw))
         return outs[-1].sum()
 
-    ops = _run_backward(mode, sdpa, *tts)
+    ops = run_backward(mode, sdpa, *tts)
     if mode == "eager":
         assert (
             outs[-1].grad_fn.name() == _FUSED_GRAD_FN
@@ -324,7 +294,7 @@ _DECOMPOSE_CASES = {
 }
 
 
-@pytest.mark.parametrize("mode", [_EAGER_DECOMPOSE, _COMPILE])
+@pytest.mark.parametrize("mode", [_EAGER_DECOMPOSE, OPT1_COMPILE])
 @pytest.mark.parametrize("case", list(_DECOMPOSE_CASES), ids=list(_DECOMPOSE_CASES))
 def test_sdpa_backward_decomposes(case: str, mode: str) -> None:
     """Training outside ttml's reach falls back to the math decomposition, with correct grads."""
@@ -345,7 +315,7 @@ def test_sdpa_backward_decomposes(case: str, mode: str) -> None:
         outs.append(F.scaled_dot_product_attention(a, b, c, **tt_kw))
         return outs[-1].sum()
 
-    ops = _run_backward(mode, sdpa, *tts, strict=False)
+    ops = run_backward(mode, sdpa, *tts, strict=False)
     if mode == "eager":
         assert (
             outs[-1].grad_fn.name() != _FUSED_GRAD_FN
@@ -357,7 +327,7 @@ def test_sdpa_backward_decomposes(case: str, mode: str) -> None:
     _check_grads(tts, refs)
 
 
-@pytest.mark.parametrize("mode", ["eager", _COMPILE])
+@pytest.mark.parametrize("mode", ["eager", OPT1_COMPILE])
 def test_sdpa_dropout_not_implemented(mode: str) -> None:
     tts = [
         torch.randn(_B, _H, _S, _E, dtype=_DT).to("tt").requires_grad_(True)
@@ -366,7 +336,7 @@ def test_sdpa_dropout_not_implemented(mode: str) -> None:
     with pytest.raises(
         Exception, match="dropout is not supported"
     ):  # dynamo rewraps under compile
-        _run_backward(
+        run_backward(
             mode,
             lambda a, b, c: F.scaled_dot_product_attention(
                 a, b, c, dropout_p=0.1
@@ -375,14 +345,14 @@ def test_sdpa_dropout_not_implemented(mode: str) -> None:
         )
 
 
-@_OPT1_ON_SIM
+@OPT1_ON_SIM
 def test_sdpa_backward_f32_decomposes() -> None:
     """ttml's kernels are bf16-only; f32 training takes the math decomposition."""
     q, k, v = (torch.randn(_B, _H, _S, _E) for _ in range(3))
     refs = [t.clone().requires_grad_(True) for t in (q, k, v)]
     F.scaled_dot_product_attention(*refs, is_causal=True).sum().backward()
     tts = [t.to("tt").requires_grad_(True) for t in (q, k, v)]
-    ops = _run_backward(
+    ops = run_backward(
         "compile",
         lambda a, b, c: F.scaled_dot_product_attention(a, b, c, is_causal=True).sum(),
         *tts,
@@ -392,7 +362,7 @@ def test_sdpa_backward_f32_decomposes() -> None:
 
 
 @pytest.mark.multichip
-@pytest.mark.parametrize("mode", ["eager", _COMPILE])
+@pytest.mark.parametrize("mode", ["eager", OPT1_COMPILE])
 @pytest.mark.parametrize("parallel", ["tp", "dp"])
 @pytest.mark.parametrize("grads", ["qkv", "q"])
 def test_sdpa_multi_chip_causal_backward(
@@ -435,7 +405,7 @@ def test_sdpa_multi_chip_causal_backward(
             ), f"training decomposed: {out.grad_fn.name()}"
             out.sum().backward()
     else:
-        ops = _run_backward(mode, sdpa, *tts)
+        ops = run_backward(mode, sdpa, *tts)
         assert any(
             _SDPA_OVERRIDEABLE_BW in op for op in ops
         ), f"training decomposed; post-aot ops: {sorted(ops)}"
@@ -452,7 +422,7 @@ def test_sdpa_multi_chip_causal_backward(
         ), f"grad_{name} mismatch"
 
 
-@_OPT1_ON_SIM
+@OPT1_ON_SIM
 def test_sdpa_fw_logsumexp_matches_torch() -> None:
     """Pins the ttml lse tile contract (value in column 0 of a [B, H, S, 32] f32 tile) against torch.
 
@@ -471,7 +441,9 @@ def test_sdpa_fw_logsumexp_matches_torch() -> None:
         )[:2]
 
     torch._dynamo.reset()
-    compiled = torch.compile(fw, backend="tt", fullgraph=True, options=_OPT["compile"])
+    compiled = torch.compile(
+        fw, backend="tt", fullgraph=True, options=OPT_MODES["compile"]
+    )
     _, lse = compiled(*(t.to("tt").requires_grad_(True) for t in (q, k, v)))
     assert lse.dtype == torch.float32 and lse.shape == (_B, _H, _S)
     assert _pcc(lse.cpu(), ref_lse) >= 0.999, "ttml logsumexp tile layout changed"

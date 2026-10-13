@@ -261,6 +261,26 @@ TTNNOperandsWorkarounds TTNNOperandsWorkaroundsFactory::
       .addOutputOperandWorkaround(resultTiledBf16Workaround);
 }
 
+// Create workarounds for the ttml silu_bw op. The backing metal op requires
+// every operand and result to be bf16, tiled and DRAM-interleaved.
+TTNNOperandsWorkarounds
+TTNNOperandsWorkaroundsFactory::createSiluBackwardOpOperandsWorkarounds(
+    Operation *op) {
+  TTNNOperandWorkarounds tileDramInterleavedBf16;
+  tileDramInterleavedBf16.tensorLayoutWorkaround = Layout::Tile;
+  tileDramInterleavedBf16.tensorBufferTypeWorkaround = BufferType::DRAM;
+  tileDramInterleavedBf16.tensorMemoryLayoutWorkaround =
+      TensorMemoryLayoutAttr::get(op->getContext(),
+                                  TensorMemoryLayout::Interleaved);
+  tileDramInterleavedBf16.tensorDataTypeWorkaround = ttcore::DataType::BFloat16;
+
+  // Input, grad_output and grad_input.
+  return TTNNOperandsWorkarounds::createEmptyTTNNOperandsWorkarounds()
+      .addInputOperandWorkaround(tileDramInterleavedBf16)
+      .addInputOperandWorkaround(tileDramInterleavedBf16)
+      .addOutputOperandWorkaround(tileDramInterleavedBf16);
+}
+
 // Create workarounds for the ttml swiglu_elemwise_bw op. The backing metal op
 // (ttml::metal::swiglu_elemwise_bw) TT_FATALs unless every tensor it touches is
 // bf16, tiled and interleaved. It places no requirement on the buffer type, so

@@ -1673,6 +1673,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_CrossEntropyBackwardOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::SiluBackwardOp: {
+    tensorRefs = {opContext.type_as_SiluBackwardOp()->grad_input()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::SwigluElemwiseBackwardOp: {
     auto *op = opContext.type_as_SwigluElemwiseBackwardOp();
     tensorRefs = {op->grad_input(), op->grad_gate()};
@@ -2108,6 +2112,11 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_CrossEntropyBackwardOp()->input(),
                   opContext.type_as_CrossEntropyBackwardOp()->target(),
                   opContext.type_as_CrossEntropyBackwardOp()->grad()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::SiluBackwardOp: {
+    auto *op = opContext.type_as_SiluBackwardOp();
+    tensorRefs = {op->input(), op->grad_output()};
     break;
   }
   case ::tt::target::ttnn::OpType::SwigluElemwiseBackwardOp: {
