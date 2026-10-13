@@ -2,6 +2,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
+from . import skip
 from .bind import bind, configure, get_report, register_op_config, session, unbind
 from .context import ChiselContext
 from .op_configs import ChiselOpConfig
@@ -15,6 +16,7 @@ __all__ = [
     "get_report",
     "register_op_config",
     "session",
+    "skip",
     "ChiselContext",
     "ChiselOpConfig",
     "ChiselRecord",
