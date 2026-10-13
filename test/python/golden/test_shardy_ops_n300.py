@@ -11,6 +11,7 @@ from collections import OrderedDict
 from builder.base.builder_utils import Operand, Shape, TypeInfo
 from builder.stablehlo.stablehlo_builder import StableHLOBuilder
 from builder.base.builder_apis import compile_and_execute_shlo
+from golden import apply_sharding
 from test_utils import Marks, shape_str
 
 pytestmark = [pytest.mark.frontend("shlo"), pytest.mark.n300]
@@ -50,7 +51,16 @@ def test_sharding_constraint(
             )
 
             builder.sharding_constraint(in0, tensor_sharding_attr=tensor_sharding_attr)
-            return builder.add(in0, in1)
+            add0 = builder.add(in0, in1)
+            builder.set_goldens_from_builder_tensor(
+                {},
+                {
+                    add0: apply_sharding(
+                        builder._get_golden_tensor(add0), mesh_shape, (0, 1)
+                    )
+                },
+            )
+            return add0
 
     compile_and_execute_shlo(
         module,
