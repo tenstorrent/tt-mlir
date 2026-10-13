@@ -269,6 +269,10 @@ CompileResult run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileO
 
     mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions pm_opts;
     set_pipeline_options(options, pm_opts);
+    // The pipeline fills the level-dependent options by whether they were assigned, which their printed
+    // values alone do not show; resolve them first so the key tells an assigned default from an unset one.
+    pm_opts.resolveOptimizationLevelOptions();
+    pm_opts.resolveCreateD2MSubgraphsOptions();
 
     auto key = calc_compilation_key(module_op, pm_opts);
     if (auto *entry = cache[key]) {
