@@ -29,6 +29,7 @@
 #include "mlir/Transforms/DialectConversion.h"
 #include "llvm/ADT/SmallVector.h"
 
+#include "llvm/ADT/ArrayRef.h"
 #include "llvm/Support/LogicalResult.h"
 #include "llvm/Support/MathExtras.h"
 #include <cmath>
@@ -699,10 +700,60 @@ public:
   LogicalResult
   matchAndRewrite(ttir::UpdateCacheOp op, OpAdaptor adaptor,
                   ConversionPatternRewriter &rewriter) const override {
+    // There is no `ttnn.update_cache`; lower directly to the paged variant.
 
-    rewriter.replaceOpWithNewOp<ttnn::UpdateCacheOp>(
-        op, adaptor.getCache(), adaptor.getInput(), adaptor.getUpdateIndex(),
-        adaptor.getBatchOffset());
+    // `ttnn.paged_update_cache` does not currently carry a `batch_offset`, so
+    // fail loudly if the offset is non-zero.
+    if (op.getBatchOffset() != 0) {
+      return rewriter.notifyMatchFailure(
+          op, "non-zero batch_offset is not currently supported when lowering "
+              "ttir.update_cache to ttnn.paged_update_cache");
+    }
+
+    mlir::Value newInput = adaptor.getInput();
+
+    // Permute input if in the format [1, num_heads, num_users, head_dim].
+    llvm::ArrayRef<int64_t> cacheShape = op.getCache().getType().getShape();
+    llvm::ArrayRef<int64_t> inputShape = op.getInput().getType().getShape();
+    int64_t numUsers = cacheShape[0];
+    int64_t numHeads = cacheShape[1];
+    int64_t headDim = cacheShape[3];
+    if (inputShape[1] == numHeads && inputShape[2] == numUsers) {
+      llvm::SmallVector<int64_t> newInputShape{1, numUsers, numHeads, headDim};
+      auto newInputType = ttnn::utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(newInput.getType()), newInputShape);
+      newInput = rewriter.create<ttnn::PermuteOp>(
+          op.getLoc(), newInputType, newInput,
+          rewriter.getDenseI64ArrayAttr({0, 2, 1, 3}),
+          /*pad_value=*/mlir::FloatAttr());
+    }
+
+    // Normalize a scalar (rank-0) update_index to rank-1.
+    mlir::Value newUpdateIndex = adaptor.getUpdateIndex();
+    if (op.getUpdateIndex().getType().getRank() == 0) {
+      RankedTensorType reshapedType =
+          ttnn::utils::RankedTensorTypeFactory::create(
+              mlir::cast<RankedTensorType>(newUpdateIndex.getType()), {1l});
+      newUpdateIndex = rewriter.create<ttnn::ReshapeOp>(
+          op.getLoc(), reshapedType, newUpdateIndex,
+          rewriter.getI32ArrayAttr({1}));
+    }
+
+    // If the update index shape is [1] then repeat to num_users.
+    llvm::ArrayRef<int64_t> updateIndexShape =
+        mlir::cast<mlir::RankedTensorType>(newUpdateIndex.getType()).getShape();
+    if (updateIndexShape[0] == 1) {
+      auto newUpdateIndexType = ttnn::utils::RankedTensorTypeFactory::create(
+          mlir::cast<RankedTensorType>(newUpdateIndex.getType()), {numUsers});
+      ttnn::ShapeAttr repeatDims =
+          ttnn::ShapeAttr::get(rewriter.getContext(), {numUsers});
+      newUpdateIndex = rewriter.create<ttnn::RepeatOp>(
+          op.getLoc(), newUpdateIndexType, newUpdateIndex, repeatDims);
+    }
+
+    rewriter.replaceOpWithNewOp<ttnn::PagedUpdateCacheOp>(
+        op, adaptor.getCache(), newInput, newUpdateIndex,
+        /*share_cache=*/false, /*page_table=*/nullptr);
     return success();
   }
 };
