@@ -420,27 +420,6 @@ at::Tensor tt_transpose_int(const at::Tensor &self, int64_t dim0, int64_t dim1) 
     return wrap_tt_tensor(std::move(outputs[0]), out_shape, self.scalar_type());
 }
 
-at::Tensor tt_to_copy(const at::Tensor &self_in, std::optional<at::ScalarType> dtype,
-                      std::optional<at::Layout> /*layout*/, std::optional<at::Device> device,
-                      std::optional<bool> /*pin_memory*/, bool /*non_blocking*/,
-                      std::optional<at::MemoryFormat> /*memory_format*/) {
-    auto target_dtype = dtype.value_or(self_in.scalar_type());
-    // No-op if dtype unchanged and staying on tt device (or no device specified)
-    bool same_device = !device.has_value() || is_tt(*device);
-    if (target_dtype == self_in.scalar_type() && same_device) {
-        return self_in;
-    }
-    // Cross-device copies should not reach this kernel; fallback handles them.
-    TT_FATAL(same_device, "tt-crank _to_copy: cross-device copy reached native kernel");
-    TORCH_CHECK(is_tt(self_in), "tt-crank aten::_to_copy: tensor must be on tt backend");
-    auto mb = ModuleBuilder::init({spec_for(self_in)});
-    auto target_mlir_type = mlir_element_type_for(target_dtype);
-    auto result = mb.insert_typecast(mb.args()[0], target_mlir_type);
-    auto module_op = std::move(mb).finalize({result});
-    auto outputs = compile_and_run(std::move(module_op), {self_in});
-    return wrap_tt_tensor(std::move(outputs[0]), self_in.sizes(), target_dtype);
-}
-
 at::Tensor tt_permute(const at::Tensor &self, at::IntArrayRef dims) {
     TORCH_CHECK(is_tt(self), "tt-crank aten::permute: tensor must be on tt backend");
     int64_t rank = self.dim();
@@ -1215,7 +1194,6 @@ TORCH_LIBRARY_IMPL(aten, PrivateUse1, m) {
     m.impl("squeeze.dim", TORCH_FN(tt_squeeze_dim));
     m.impl("expand", TORCH_FN(tt_expand));
     m.impl("transpose.int", TORCH_FN(tt_transpose_int));
-    // NOTE: _to_copy is intentionally NOT registered here, because it has problems.
     m.impl("permute", TORCH_FN(tt_permute));
     m.impl("cat", TORCH_FN(tt_cat));
     m.impl("slice.Tensor", TORCH_FN(tt_slice));
