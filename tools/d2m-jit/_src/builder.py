@@ -99,6 +99,92 @@ def _to_runtime_data_type(dtype):
     return mapping[dtype]
 
 
+class FabricConfig:
+    """Host-side description of a generic's 1D fabric connection."""
+
+    __slots__ = ("cluster_axis", "topology", "routing", "noc", "num_links")
+
+    _ROUTING_BY_TOPOLOGY = {
+        "linear": "bidir_line_mesh",
+        "ring": "unidir_ring_torus",
+    }
+
+    def __init__(
+        self,
+        cluster_axis,
+        topology="ring",
+        routing=None,
+        noc="noc0",
+        num_links=1,
+    ):
+        if (
+            not isinstance(cluster_axis, int)
+            or isinstance(cluster_axis, bool)
+            or cluster_axis < 0
+        ):
+            raise ValueError(
+                f"fabric cluster_axis must be a non-negative integer, got {cluster_axis!r}"
+            )
+
+        topology = str(topology).lower()
+        if topology not in self._ROUTING_BY_TOPOLOGY:
+            raise ValueError(
+                "fabric topology must be 'linear' or 'ring', " f"got {topology!r}"
+            )
+
+        expected_routing = self._ROUTING_BY_TOPOLOGY[topology]
+        routing = expected_routing if routing is None else str(routing).lower()
+        if routing != expected_routing:
+            raise ValueError(
+                f"fabric topology {topology!r} requires routing "
+                f"{expected_routing!r}, got {routing!r}"
+            )
+
+        noc = str(noc).lower()
+        if noc not in {"noc0", "noc1"}:
+            raise ValueError(f"fabric noc must be 'noc0' or 'noc1', got {noc!r}")
+        if (
+            not isinstance(num_links, int)
+            or isinstance(num_links, bool)
+            or num_links <= 0
+        ):
+            raise ValueError(
+                f"fabric num_links must be a positive integer, got {num_links!r}"
+            )
+
+        self.cluster_axis = cluster_axis
+        self.topology = topology
+        self.routing = routing
+        self.noc = noc
+        self.num_links = num_links
+
+    @property
+    def runtime_mode(self):
+        return "FABRIC_1D_RING" if self.topology == "ring" else "FABRIC_1D"
+
+    def build_attr(self, ctx):
+        return Attribute.parse(
+            "#ttcore.fabric_connection_config<"
+            f"noc_index = {self.noc}, "
+            f"topology = {self.topology}, "
+            f"cluster_axis = {self.cluster_axis}, "
+            f"routing_mode = {self.routing}, "
+            f"num_links = {self.num_links}>",
+            ctx,
+        )
+
+
+def fabric_config(
+    cluster_axis,
+    topology="ring",
+    routing=None,
+    noc="noc0",
+    num_links=1,
+):
+    """Create a validated 1D fabric configuration for a kernel call."""
+    return FabricConfig(cluster_axis, topology, routing, noc, num_links)
+
+
 # --- Builder singleton -------------------------------------------------------
 
 
@@ -269,6 +355,7 @@ class _Builder:
         self._mesh_shape = None
         self._mesh_topology = None
         self._mesh_name = None
+        self._fabric_runtime_mode = None
         # Reset the MLIR-free mesh mirror the simulator reads (a fresh graph
         # declares its own mesh).
         _clear_current_mesh()
@@ -321,6 +408,49 @@ class _Builder:
         self._mesh_topology = requested_topology
         self._mesh_name = "mesh"
         _set_current_mesh(self._mesh_shape, self._mesh_topology, self._mesh_name)
+
+    def enable_fabric(self, fabric):
+        """Validate a kernel fabric config and record its runtime mode."""
+        if not isinstance(fabric, FabricConfig):
+            raise TypeError(
+                "fabric must be created with d2m.fabric_config(), "
+                f"got {type(fabric).__name__}"
+            )
+        if self._mesh_shape is None:
+            raise RuntimeError(
+                "fabric kernels require a device mesh; call d2m.mesh() first"
+            )
+        if fabric.cluster_axis >= len(self._mesh_shape):
+            raise ValueError(
+                f"fabric cluster_axis {fabric.cluster_axis} is out of range for "
+                f"mesh shape {tuple(self._mesh_shape)}"
+            )
+        if self._mesh_shape[fabric.cluster_axis] < 2:
+            raise ValueError(
+                f"fabric cluster_axis {fabric.cluster_axis} has size "
+                f"{self._mesh_shape[fabric.cluster_axis]}; expected at least 2"
+            )
+        if self._mesh_topology is None:
+            raise RuntimeError(
+                "fabric kernels require an explicit mesh topology; pass "
+                "topology= to d2m.mesh()"
+            )
+        mesh_topology = self._mesh_topology[fabric.cluster_axis]
+        if mesh_topology != fabric.topology:
+            raise ValueError(
+                f"fabric topology {fabric.topology!r} does not match mesh "
+                f"topology {mesh_topology!r} on axis {fabric.cluster_axis}"
+            )
+        if (
+            self._fabric_runtime_mode is not None
+            and self._fabric_runtime_mode != fabric.runtime_mode
+        ):
+            raise ValueError(
+                "all fabric kernels in one graph must use the same runtime "
+                f"mode; already using {self._fabric_runtime_mode}, got "
+                f"{fabric.runtime_mode}"
+            )
+        self._fabric_runtime_mode = fabric.runtime_mode
 
     def _refresh_function_type(self, results=None):
         with self.ctx, self.loc:
@@ -1616,15 +1746,30 @@ def _execute(b: _Builder, lts):
             )
         )
 
-    device = runtime.open_mesh_device(device_options)
-    submitted = runtime.submit(device, fbb, program_index, rt_inputs)
-    runtime.wait(submitted)
-    for i, rt_out in enumerate(submitted):
-        host_view = runtime.to_host(rt_out, untilize=True)[0]
-        runtime.memcpy(rt_outputs[i], host_view)
-        runtime.deallocate_tensor(rt_out, force=True)
-    runtime.close_mesh_device(device)
-    return out_torch
+    device = None
+    fabric_enabled = False
+    try:
+        if b._fabric_runtime_mode is not None:
+            runtime.set_fabric_config(
+                getattr(runtime.FabricConfig, b._fabric_runtime_mode)
+            )
+            fabric_enabled = True
+
+        device = runtime.open_mesh_device(device_options)
+        submitted = runtime.submit(device, fbb, program_index, rt_inputs)
+        runtime.wait(submitted)
+        for i, rt_out in enumerate(submitted):
+            host_view = runtime.to_host(rt_out, untilize=True)[0]
+            runtime.memcpy(rt_outputs[i], host_view)
+            runtime.deallocate_tensor(rt_out, force=True)
+        return out_torch
+    finally:
+        try:
+            if device is not None:
+                runtime.close_mesh_device(device)
+        finally:
+            if fabric_enabled:
+                runtime.set_fabric_config(runtime.FabricConfig.DISABLED)
 
 
 def to_host(*lts: LazyTensor):
@@ -1824,6 +1969,7 @@ def _emit_kernel_generic(
     block_factors,
     indexing_maps,
     iterator_types,
+    fabric=None,
     kernel_io_in_dram=None,
     grid_offset=(0, 0),
 ):
@@ -1848,6 +1994,17 @@ def _emit_kernel_generic(
             hint=hint,
             cause=cause,
         )
+
+    fabric_attr = None
+    if fabric is not None:
+        if not isinstance(b, _Builder):
+            raise _call_error(
+                "fabric kernels require the top-level lazy builder and are not "
+                "supported inside a pattern rewrite or d2m.spatial",
+                cause=TypeError(),
+            )
+        b.enable_fabric(fabric)
+        fabric_attr = fabric.build_attr(b.ctx)
 
     # Split args while preserving the GenericOp contract: all tensors precede
     # all additional args (runtime scalars and global semaphores).
@@ -2016,6 +2173,7 @@ def _emit_kernel_generic(
             iter_attr,
             threads,
             1,  # num_regions
+            fabricConnectionConfig=fabric_attr,
         )
 
         region = generic.regions[0]
@@ -2075,6 +2233,7 @@ class CompiledKernel:
         block_factors=None,
         indexing_maps=None,
         iterator_types=None,
+        fabric=None,
         kernel_io_in_dram=None,
     ):
         b = _get_scope()
@@ -2087,9 +2246,14 @@ class CompiledKernel:
                 block_factors=block_factors,
                 indexing_maps=indexing_maps,
                 iterator_types=iterator_types,
+                fabric=fabric,
                 kernel_io_in_dram=kernel_io_in_dram,
             )
         else:
+            if fabric is not None:
+                raise ValueError(
+                    "fabric kernels are not currently supported inside d2m.spatial"
+                )
             b._emit_kernel_for_spatial(
                 self,
                 args,
