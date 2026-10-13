@@ -87,14 +87,6 @@ def _build_ttnn_layout_attr(
     )
 
 
-def _core_range_start_and_shape(
-    core_range: Tuple[Tuple[int, int], Tuple[int, int]],
-) -> Tuple[Tuple[int, int], Tuple[int, int]]:
-    (start_y, start_x), (end_y, end_x) = core_range
-    grid_shape = (end_y - start_y + 1, end_x - start_x + 1)
-    return (start_y, start_x), grid_shape
-
-
 def _largest_divisor_not_exceeding(value: int, upper_bound: int) -> int:
     if value <= 0:
         return 1
@@ -182,7 +174,7 @@ def _convert_input_to_device_tiled(
     target: str,
     grid_shape: Tuple[int, int] | None = None,
 ) -> Operand:
-    core_start, core_range_shape = _core_range_start_and_shape(core_range)
+    core_start, core_range_shape = core_range
     if grid_shape is None:
         grid_shape = core_range_shape
     effective_grid = _resolve_effective_grid(tensor_shape, grid_shape)
@@ -276,7 +268,7 @@ def _allocate_device_output(
     target: str,
     grid_shape: Tuple[int, int] | None = None,
 ) -> Tuple[Operand, RankedTensorType]:
-    core_start, core_range_shape = _core_range_start_and_shape(core_range)
+    core_start, core_range_shape = core_range
     if grid_shape is None:
         grid_shape = core_range_shape
     effective_grid = _resolve_effective_grid(tensor_shape, grid_shape)
@@ -480,10 +472,10 @@ def _build_all_gather_region(
 @pytest.mark.parametrize(
     "grid_ranges",
     [
-        pytest.param([((0, 0), (0, 0)), ((1, 1), (1, 1))], id="basic"),
-        pytest.param([((0, 0), (0, 0)), ((0, 1), (0, 1))], id="offset_x"),
-        pytest.param([((1, 1), (1, 1)), ((2, 2), (2, 2))], id="none_from_origin"),
-        pytest.param([((0, 0), (0, 1)), ((1, 0), (1, 1))], id="multi_cores_per_region"),
+        pytest.param([((0, 0), (1, 1)), ((1, 1), (1, 1))], id="basic"),
+        pytest.param([((0, 0), (1, 1)), ((0, 1), (1, 1))], id="offset_x"),
+        pytest.param([((1, 1), (1, 1)), ((2, 2), (1, 1))], id="none_from_origin"),
+        pytest.param([((0, 0), (1, 2)), ((1, 0), (1, 2))], id="multi_cores_per_region"),
     ],
 )
 @pytest.mark.parametrize(
@@ -625,9 +617,9 @@ def test_spatial_two_regions_two_matmuls(
 @pytest.mark.parametrize(
     "grid_ranges",
     [
-        pytest.param([((0, 0), (1, 0)), ((0, 1), (0, 1))], id="offset_x"),
-        pytest.param([((0, 0), (1, 0)), ((1, 1), (1, 1))], id="none_from_origin"),
-        pytest.param([((0, 0), (1, 0)), ((2, 2), (2, 3))], id="multi_cores"),
+        pytest.param([((0, 0), (2, 1)), ((0, 1), (1, 1))], id="offset_x"),
+        pytest.param([((0, 0), (2, 1)), ((1, 1), (1, 1))], id="none_from_origin"),
+        pytest.param([((0, 0), (2, 1)), ((2, 2), (1, 2))], id="multi_cores"),
     ],
 )
 @pytest.mark.parametrize(
