@@ -28,7 +28,7 @@ void createPyKernelCompilePipeline(
   funcPm.addPass(mlir::tt::createRemoveDeadEmitCExpressionsPass());
 
   if (options.enableFormExpressions) {
-    funcPm.addPass(mlir::emitc::createFormExpressionsPass());
+    funcPm.addPass(mlir::tt::createFormDeduplicatedEmitCExpressionsPass());
   }
 }
 
