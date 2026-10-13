@@ -15,10 +15,12 @@ add_mlir_dialect_library(MLIRStableHLOTransforms
   RegisterUserShardingRule.cpp
   ReoutlineComposite.cpp
   ReplicateNonSplittableValues.cpp
+  RewriteStaticDynamicUpdateSlice.cpp
   ShardyCCLCanonicalization.cpp
   ShardyCCLToStableHLOCCLPatterns.cpp
   StableHLOFusing.cpp
   UnsolvedGraphPasses.cpp
+  UnrollStaticWhile.cpp
   UpdateGlobalToLocalShapes.cpp
   WrapUnderManualComputation.cpp
 
