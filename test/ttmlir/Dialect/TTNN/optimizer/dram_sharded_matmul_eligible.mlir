@@ -1,17 +1,15 @@
 // REQUIRES: opmodel
 // RUN: ttmlir-opt --ttir-to-ttnn-backend-pipeline="optimization-level=2 experimental-weight-dtype=bfp_bf8 enable-dram-sharded-matmul=true" -o %t %s
 // RUN: FileCheck %s --input-file=%t --implicit-check-not='"ttnn.silu"' --implicit-check-not='activation = "silu"'
-//
-// tt-metal#57022: the stateful op-model query trips on the Metal 2.0 DS
-// factory's borrowed-memory DFBs. Remove once the fix is uplifted.
-// XFAIL: *
 
 // Shapes the DS gate accepts; each gets the DS program config with per_core_m = 1.
 // The implicit-check-nots catch a silu that survived outside the multiply.
 
 module attributes {} {
-  // Baseline decode projection.
+  // Baseline decode projection. No compute config: compute_config would sort
+  // before matmul_program_config, hence the CHECK-NOT ahead of it.
   // CHECK-LABEL: func.func @ds_matmul_m32
+  // CHECK-NOT: compute_config
   // CHECK: matmul_program_config = #ttnn.matmul_multi_core_reuse_multi_cast_dram_sharded_program_config
   // CHECK-SAME: per_core_m = 1
   func.func @ds_matmul_m32(
