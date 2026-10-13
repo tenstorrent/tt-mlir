@@ -39,10 +39,10 @@ _OPT = {
     "compile-opt0": {CompileOption.OPT_LEVEL: 0},
 }
 # Any OPT_LEVEL 1 compile aborts the process under ttsim, so the promotion cases cannot even run there.
+# skipif rather than xfail(run=False): pytest honours only the first xfail mark on an item, so a case-level
+# xfail (e.g. _SCALAR_0D_BUG) would otherwise override run=False and let the process abort.
 _SIM = os.environ.get("TT_CRANK_USE_SIMULATOR") == "1"
-_OPT1_ON_SIM = pytest.mark.xfail(
-    _SIM, reason="OPT_LEVEL 1 aborts under ttsim", run=False
-)
+_OPT1_ON_SIM = pytest.mark.skipif(_SIM, reason="OPT_LEVEL 1 aborts under ttsim")
 _COMPILE = pytest.param("compile", marks=_OPT1_ON_SIM)
 _OPT_MODES = [_COMPILE if m == "compile" else m for m in _OPT]
 _COMPILE_MODES = [_COMPILE, "compile-opt0"]
