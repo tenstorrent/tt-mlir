@@ -25,6 +25,16 @@ static constexpr std::array<int64_t, 4> kFromSDPAPermutation = {2, 0, 1, 3};
 // Permutation: [0, 2, 1, 3] maps [B, 1, Hq, Sk] -> [B, Hq, 1, Sk]
 static constexpr std::array<int64_t, 4> kMaskToSDPAPermutation = {0, 2, 1, 3};
 
+/// Create a type with `shape` in f32, reusing `referenceType`'s layout.
+/// f32 is required for index comparisons: bf16 has 7 mantissa bits and cannot
+/// represent odd integer indices > 256, corrupting causal/window masks.
+static RankedTensorType createF32Type(RankedTensorType referenceType,
+                                      ArrayRef<int64_t> shape) {
+  return ttnn::utils::RankedTensorTypeFactory::create(
+      ttnn::utils::RankedTensorTypeFactory::create(referenceType, shape),
+      ttcore::DataType::Float32);
+}
+
 static Value createPermute(Value input, ArrayRef<int64_t> permutation,
                            PatternRewriter &rewriter, Location loc) {
   auto inputType = mlir::cast<RankedTensorType>(input.getType());
@@ -126,6 +136,8 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
     // the prefill mask convention (heads dim broadcast). (When a sliding window
     // is also present, the window block below builds the causal cutoff too, so
     // this branch is skipped to avoid a redundant mask.)
+    // Index arithmetic and comparisons run in f32 because bf16 has only 7
+    // mantissa bits and cannot represent odd integer indices > 256.
     Value curPos = op.getCurPosTensor();
     auto curPosType = mlir::cast<RankedTensorType>(curPos.getType());
 
@@ -141,24 +153,22 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
                                      rewriter.getI32ArrayAttr(reshapeShapeI32))
             .getResult();
 
-    // 2. Cast cur_pos from int32 to Q's dtype so comparison with arange works.
+    // 2. Cast cur_pos from int32 to f32 for exact index comparison at Sk > 256.
     auto castedCurPosType = ttnn::utils::RankedTensorTypeFactory::create(
-        reshapedCurPosType, qDataType);
+        reshapedCurPosType, ttcore::DataType::Float32);
     curPos =
         rewriter.create<TypecastOp>(loc, castedCurPosType, curPos).getResult();
 
-    // 3. Arange [0..Sk) -> rank-1 [Sk] in Q's dtype (ttnn.arange verifier
+    // 3. Arange [0..Sk) -> rank-1 [Sk] in f32 (ttnn.arange verifier
     // requires rank-1 output), then reshape to [1, 1, 1, Sk] for broadcast.
-    auto arange1dType = ttnn::utils::RankedTensorTypeFactory::create(
-        qType, llvm::SmallVector<int64_t>{seqLenKV});
+    auto arange1dType = createF32Type(qType, {seqLenKV});
     Value indices =
         rewriter
             .create<ttnn::ArangeOp>(loc, arange1dType, device, /*start=*/0,
                                     /*end=*/seqLenKV, /*step=*/1)
             .getResult();
 
-    auto arange4dType = ttnn::utils::RankedTensorTypeFactory::create(
-        qType, llvm::SmallVector<int64_t>{1, 1, 1, seqLenKV});
+    auto arange4dType = createF32Type(qType, {1, 1, 1, seqLenKV});
     llvm::SmallVector<int32_t> arange4dShapeI32 = {
         1, 1, 1, static_cast<int32_t>(seqLenKV)};
     indices =
@@ -167,36 +177,37 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
                                      rewriter.getI32ArrayAttr(arange4dShapeI32))
             .getResult();
 
-    // 4. gt(arange, cur_pos): broadcasts to [B, 1, 1, Sk]. The result is in
-    // Q's dtype carrying 0.0/1.0 (TTNN comparison ops follow input dtype).
+    // 4. gt(arange, cur_pos) in f32: broadcasts to [B, 1, 1, Sk].
     auto maskShape = llvm::SmallVector<int64_t>{batch, 1, 1, seqLenKV};
-    auto maskType =
-        ttnn::utils::RankedTensorTypeFactory::create(qType, maskShape);
+    auto f32MaskType = createF32Type(qType, maskShape);
     Value isMasked =
-        rewriter.create<GreaterThanOp>(loc, maskType, indices, curPos)
+        rewriter.create<GreaterThanOp>(loc, f32MaskType, indices, curPos)
             .getResult();
 
-    // 5. Zeros and -inf at full mask shape. ttnn.where doesn't reliably
-    // broadcast scalar branches against a multi-dim condition, so the t/f
-    // branches must be pre-broadcast to match the condition's shape.
+    // 5. Zeros and -inf at full mask shape in f32.
     Value zeros = rewriter
-                      .create<FullOp>(loc, maskType,
+                      .create<FullOp>(loc, f32MaskType,
                                       rewriter.getF32FloatAttr(0.0f), device)
                       .getResult();
     Value negInf =
         rewriter
-            .create<FullOp>(loc, maskType,
+            .create<FullOp>(loc, f32MaskType,
                             rewriter.getF32FloatAttr(
                                 -std::numeric_limits<float>::infinity()),
                             device)
             .getResult();
 
-    // 6. where(isMasked, -inf, 0) -> [B, 1, 1, Sk] mask in prefill convention.
-    // The mask is in {0, -inf} so pre-scaling by `scale` is a no-op
-    // (scale*0=0, scale*-inf=-inf); no MultiplyOp needed.
-    scaledMask =
-        rewriter.create<WhereOp>(loc, maskType, isMasked, negInf, zeros)
+    // 6. where(isMasked, -inf, 0) in f32, then cast the {0, -inf} mask to Q's
+    // dtype for the downstream SDPA op.
+    Value f32Mask =
+        rewriter.create<WhereOp>(loc, f32MaskType, isMasked, negInf, zeros)
             .getResult();
+    auto maskType =
+        ttnn::utils::RankedTensorTypeFactory::create(qType, maskShape);
+    scaledMask = (qDataType == ttcore::DataType::Float32)
+                     ? f32Mask
+                     : rewriter.create<TypecastOp>(loc, maskType, f32Mask)
+                           .getResult();
   }
 
   // Sliding window: bake it into an explicit additive {0,-inf} mask, since the
@@ -206,7 +217,8 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
   // position Sk-1 (is_causal=false ignores cur_pos). The window keeps keys
   // (anchor - W, anchor]: -inf where index > anchor (causal cutoff) OR
   // index <= anchor - W (window lower bound). Combine with any mask already
-  // built.
+  // built. All index arithmetic and comparisons run in f32 so indices > 256 are
+  // exact even when Q/mask are bf16.
   if (auto windowAttr = op.getSlidingWindowSizeAttr()) {
     int64_t window = static_cast<int64_t>(windowAttr.getUInt());
     const bool perBatchAnchor = op.getIsCausal() && op.getCurPosTensor();
@@ -218,9 +230,8 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
             mlir::dyn_cast_if_present<TTNNLayoutAttr>(refType.getEncoding())) {
       refDataType = refLayoutAttr.getDataType();
     }
-    // indices = arange(Sk) reshaped to [1, 1, 1, Sk].
-    auto arange1dType = ttnn::utils::RankedTensorTypeFactory::create(
-        refType, llvm::SmallVector<int64_t>{seqLenKV});
+    // indices = arange(Sk) in f32 reshaped to [1, 1, 1, Sk].
+    auto arange1dType = createF32Type(refType, {seqLenKV});
     Value indices = rewriter
                         .create<ttnn::ArangeOp>(loc, arange1dType, device,
                                                 /*start=*/0, /*end=*/seqLenKV,
@@ -229,25 +240,24 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
     indices =
         rewriter
             .create<ttnn::ReshapeOp>(
-                loc,
-                ttnn::utils::RankedTensorTypeFactory::create(
-                    refType, llvm::SmallVector<int64_t>{1, 1, 1, seqLenKV}),
-                indices,
+                loc, createF32Type(refType, {1, 1, 1, seqLenKV}), indices,
                 rewriter.getI32ArrayAttr(
                     {1, 1, 1, static_cast<int32_t>(seqLenKV)}))
             .getResult();
 
     // Mask is [B, 1, 1, Sk] for a per-batch anchor, else [1, 1, 1, Sk].
     int64_t maskBatch = perBatchAnchor ? batch : 1;
-    auto maskType = ttnn::utils::RankedTensorTypeFactory::create(
-        refType, llvm::SmallVector<int64_t>{maskBatch, 1, 1, seqLenKV});
+    llvm::SmallVector<int64_t> maskShape = {maskBatch, 1, 1, seqLenKV};
+    auto f32MaskType = createF32Type(refType, maskShape);
+    auto maskType =
+        ttnn::utils::RankedTensorTypeFactory::create(refType, maskShape);
     Value zeros = rewriter
-                      .create<FullOp>(loc, maskType,
+                      .create<FullOp>(loc, f32MaskType,
                                       rewriter.getF32FloatAttr(0.0f), device)
                       .getResult();
     Value negInf =
         rewriter
-            .create<FullOp>(loc, maskType,
+            .create<FullOp>(loc, f32MaskType,
                             rewriter.getF32FloatAttr(
                                 -std::numeric_limits<float>::infinity()),
                             device)
@@ -256,8 +266,8 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
     Value windowMask;
     if (perBatchAnchor) {
       // Per-batch anchor at cur_pos[b]: reshape cur_pos [B] -> [B, 1, 1, 1] and
-      // cast to the mask dtype, then mask the causal cutoff (index > cur_pos)
-      // unioned with the window lower bound (index <= cur_pos - W).
+      // cast to f32, then mask the causal cutoff (index > cur_pos) unioned with
+      // the window lower bound (index <= cur_pos - W).
       Value curPos = op.getCurPosTensor();
       auto curPosType = mlir::cast<RankedTensorType>(curPos.getType());
       auto reshapedCurPosType = ttnn::utils::RankedTensorTypeFactory::create(
@@ -269,10 +279,10 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
                            {static_cast<int32_t>(batch), 1, 1, 1}))
                    .getResult();
       auto castedCurPosType = ttnn::utils::RankedTensorTypeFactory::create(
-          reshapedCurPosType, refDataType);
+          reshapedCurPosType, ttcore::DataType::Float32);
       curPos = rewriter.create<TypecastOp>(loc, castedCurPosType, curPos)
                    .getResult();
-      // lowerBound = cur_pos - W.
+      // lowerBound = cur_pos - W in f32.
       Value negW =
           rewriter
               .create<FullOp>(
@@ -284,36 +294,42 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
               .getResult();
       // -inf where index > cur_pos (causal) ...
       Value aboveCausal =
-          rewriter.create<GreaterThanOp>(loc, maskType, indices, curPos)
+          rewriter.create<GreaterThanOp>(loc, f32MaskType, indices, curPos)
               .getResult();
       Value upperMask =
-          rewriter.create<WhereOp>(loc, maskType, aboveCausal, negInf, zeros)
+          rewriter.create<WhereOp>(loc, f32MaskType, aboveCausal, negInf, zeros)
               .getResult();
       // ... unioned with -inf where index <= cur_pos - W (window lower bound).
       Value aboveLower =
-          rewriter.create<GreaterThanOp>(loc, maskType, indices, lowerBound)
+          rewriter.create<GreaterThanOp>(loc, f32MaskType, indices, lowerBound)
               .getResult();
       Value lowerMask =
-          rewriter.create<WhereOp>(loc, maskType, aboveLower, zeros, negInf)
+          rewriter.create<WhereOp>(loc, f32MaskType, aboveLower, zeros, negInf)
               .getResult();
-      windowMask = rewriter.create<AddOp>(loc, maskType, upperMask, lowerMask)
-                       .getResult();
+      windowMask =
+          rewriter.create<AddOp>(loc, f32MaskType, upperMask, lowerMask)
+              .getResult();
     } else {
       // Static anchor at Sk-1 (is_causal=false ignores cur_pos): only the lower
       // bound bites — keep iff index > Sk - W - 1 (== index >= Sk - W).
       Value threshold =
           rewriter
-              .create<FullOp>(loc, maskType,
+              .create<FullOp>(loc, f32MaskType,
                               rewriter.getF32FloatAttr(
                                   static_cast<float>(seqLenKV - window - 1)),
                               device)
               .getResult();
       Value inWindow =
-          rewriter.create<GreaterThanOp>(loc, maskType, indices, threshold)
+          rewriter.create<GreaterThanOp>(loc, f32MaskType, indices, threshold)
               .getResult();
       windowMask =
-          rewriter.create<WhereOp>(loc, maskType, inWindow, zeros, negInf)
+          rewriter.create<WhereOp>(loc, f32MaskType, inWindow, zeros, negInf)
               .getResult();
+    }
+
+    if (refDataType != ttcore::DataType::Float32) {
+      windowMask =
+          rewriter.create<TypecastOp>(loc, maskType, windowMask).getResult();
     }
 
     // Combine: window mask is {0,-inf}, so adding it onto any existing mask

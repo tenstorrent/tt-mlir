@@ -110,6 +110,7 @@ module {
     // CHECK: "ttnn.gt"
     // CHECK: "ttnn.where"
     // CHECK: "ttnn.add"
+    // CHECK: "ttnn.typecast"
     // CHECK: "ttnn.softmax"
     %result = "ttnn.scaled_dot_product_attention_decode"(%query, %key, %value, %cur_pos) <{
       operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0>,

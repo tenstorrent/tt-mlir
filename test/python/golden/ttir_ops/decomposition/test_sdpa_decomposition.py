@@ -243,8 +243,15 @@ def test_sdpa_decode_decomposition_with_mask(
             [(1, 32, 32, 64), (32, 32, 128, 64), (32, 32, 128, 64), (32,)],
             0.125,
         ),
+        # Decode causal with kv_seq=512 (> 256) and cur_pos=kv_seq//2=256:
+        # verifies index comparison runs in f32 so bf16 rounding of odd indices
+        # > 256 (e.g. 257 -> 256.0 in bf16) does not leak future KV positions.
+        (
+            [(1, 4, 32, 64), (4, 32, 512, 64), (4, 32, 512, 64), (4,)],
+            0.125,
+        ),
     ],
-    ids=["decode_causal"],
+    ids=["decode_causal", "decode_causal_seq512"],
 )
 @pytest.mark.parametrize("target", ["ttnn"])
 def test_sdpa_decode_decomposition_causal_no_mask(
