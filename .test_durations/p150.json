@@ -9466,3 +9466,4 @@
     "ttnn_ops/normalization/test_ttnn_normalization.py::test_rms_norm_pre_all_gather[ttnn-True-1x1x32x128]": 0.393,
     "ttnn_ops/normalization/test_ttnn_normalization.py::test_rms_norm_pre_all_gather[ttnn-True-1x1x32x512]": 5.46
 }
+

@@ -2431,3 +2431,4 @@
     "ttir_ops/ccl/test_moe_compute_full.py::test_moe_compute_full_path_verify[h1280_n896_swiglu_bias-1x8-notrace]": 0.002,
     "ttir_ops/ccl/test_moe_compute_full.py::test_moe_compute_full_path_verify[h1280_n896_swiglu_bias-1x8-trace]": 0.002
 }
+
