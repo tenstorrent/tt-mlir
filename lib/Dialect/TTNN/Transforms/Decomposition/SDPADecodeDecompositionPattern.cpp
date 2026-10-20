@@ -204,10 +204,10 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
             .getResult();
     auto maskType =
         ttnn::utils::RankedTensorTypeFactory::create(qType, maskShape);
-    scaledMask = (qDataType == ttcore::DataType::Float32)
-                     ? f32Mask
-                     : rewriter.create<TypecastOp>(loc, maskType, f32Mask)
-                           .getResult();
+    scaledMask =
+        (qDataType == ttcore::DataType::Float32)
+            ? f32Mask
+            : rewriter.create<TypecastOp>(loc, maskType, f32Mask).getResult();
   }
 
   // Sliding window: bake it into an explicit additive {0,-inf} mask, since the
@@ -237,13 +237,12 @@ LogicalResult SDPADecodeDecompositionPattern::matchAndRewrite(
                                                 /*start=*/0, /*end=*/seqLenKV,
                                                 /*step=*/1)
                         .getResult();
-    indices =
-        rewriter
-            .create<ttnn::ReshapeOp>(
-                loc, createF32Type(refType, {1, 1, 1, seqLenKV}), indices,
-                rewriter.getI32ArrayAttr(
-                    {1, 1, 1, static_cast<int32_t>(seqLenKV)}))
-            .getResult();
+    indices = rewriter
+                  .create<ttnn::ReshapeOp>(
+                      loc, createF32Type(refType, {1, 1, 1, seqLenKV}), indices,
+                      rewriter.getI32ArrayAttr(
+                          {1, 1, 1, static_cast<int32_t>(seqLenKV)}))
+                  .getResult();
 
     // Mask is [B, 1, 1, Sk] for a per-batch anchor, else [1, 1, 1, Sk].
     int64_t maskBatch = perBatchAnchor ? batch : 1;
