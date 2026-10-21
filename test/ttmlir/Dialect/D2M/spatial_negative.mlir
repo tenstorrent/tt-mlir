@@ -9,6 +9,7 @@
 // 5. when grid mapping is empty: grid shape <= region shape
 // 6. when grid mapping is present: virtual grid [0,0]-[gridY-1,gridX-1] contained
 //    in region virtual bbox (inverse map applied to CoreRange)
+// 7. grid_ranges do not overlap
 
 #layout = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
@@ -52,8 +53,8 @@ module {
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_2> {
     %0 = d2m.spatial {
       grid_ranges = [
-        #ttcore.core_range<(1, 1), (1, 1)>,
-        #ttcore.core_range<(2, 2), (3, 4)>
+        #ttcore.core_range<(1,1), 1x1>,
+        #ttcore.core_range<(2,2), 2x3>
       ]
     } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_2>) {
       ^region_0:
@@ -86,7 +87,7 @@ module {
       %arg0: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3>)
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3> {
     %0 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(1, 1), (1, 1)>]
+      grid_ranges = [#ttcore.core_range<(1,1), 1x1>]
     } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3>) {
       ^region_0:
         d2m.spatial_yield %arg0 : (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3>)
@@ -107,7 +108,7 @@ module {
       %arg0: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3b>)
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3b> {
     %0 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(1, 1), (1, 1)>]
+      grid_ranges = [#ttcore.core_range<(1,1), 1x1>]
     } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_3b>) {
       ^region_0:
         %1 = d2m.generic {
@@ -150,7 +151,7 @@ module {
       %arg0: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_4>)
       -> tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_4> {
     %0 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(1, 1), (1, 1)>]
+      grid_ranges = [#ttcore.core_range<(1,1), 1x1>]
     } ins() outs(%arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_4>) {
       ^region_0:
         %1 = d2m.generic {
@@ -175,7 +176,7 @@ module {
 
 #layout_5 = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
-// 5. mapping empty: grid shape must not exceed region shape (CoreRange (1,1)-(2,4), shape 2x4)
+// 5. mapping empty: grid shape must not exceed region size (offset (1,1), size (2,4))
 // CHECK: error: 'd2m.spatial' op generic op grid shape [3, 5] exceeds region CoreRange shape [2, 4]
 
 module {
@@ -183,7 +184,7 @@ module {
       %arg0: tensor<3x5x2x2x!ttcore.tile<32x32, f32>, #layout_5>)
       -> tensor<3x5x2x2x!ttcore.tile<32x32, f32>, #layout_5> {
     %0 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(1, 1), (2, 4)>]
+      grid_ranges = [#ttcore.core_range<(1,1), 2x4>]
     } ins() outs(%arg0 : tensor<3x5x2x2x!ttcore.tile<32x32, f32>, #layout_5>) {
       ^region_0:
         %1 = d2m.generic {
@@ -208,8 +209,8 @@ module {
 #layout_6b = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping present: virtual grid contained in region virtual range (identity map)
-// Region (2,2)-(2,2) -> virtual bbox (2,2)-(2,2).
-// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [2, 2] to [2, 2]
+// Region offset (2,2), size (1,1) -> virtual bbox (2,2)-(2,2).
+// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges offset [2, 2], size [1, 1]
 
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
@@ -218,7 +219,7 @@ module {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0, d1)>}
         : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b>
     %1 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(2, 2), (2, 2)>]
+      grid_ranges = [#ttcore.core_range<(2,2), 1x1>]
     } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b>) {
       ^region_0:
         %2 = d2m.generic {
@@ -251,7 +252,7 @@ module {
       %arg0: tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_2>)
       -> tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_2> {
     %0 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(0, 0), (2, 4)>]
+      grid_ranges = [#ttcore.core_range<(0,0), 3x5>]
     } ins() outs(%arg0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_2>) {
       ^region_0:
         %1 = d2m.generic {
@@ -276,8 +277,8 @@ module {
 #layout_6b_3 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
 // 6. mapping present: virtual range containment with offset map (d0-1,d1-1)
-// Region (2,2)-(2,2) -> virtual bbox (1,1)-(1,1).
-// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [2, 2] to [2, 2]
+// Region offset (2,2), size (1,1) -> virtual bbox (1,1)-(1,1).
+// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges offset [2, 2], size [1, 1]
 
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
@@ -286,7 +287,7 @@ module {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0 - 1, d1 - 1)>}
         : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_3>
     %1 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(2, 2), (2, 2)>]
+      grid_ranges = [#ttcore.core_range<(2,2), 1x1>]
     } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_3>) {
       ^region_0:
         %2 = d2m.generic {
@@ -310,8 +311,9 @@ module {
 
 #layout_6b_4 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
-// 6. mapping present: only Y axis out. Region (2,0)-(2,3) -> virtual (2,0)-(2,3); grid [0,0]-[1,1] has Y 0,1 not in [2,2].
-// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [2, 0] to [2, 3]
+// 6. mapping present: only Y axis out. Region offset (2,0), size (1,4)
+// maps to virtual bbox (2,0)-(2,3); grid [0,0]-[1,1] has Y 0,1 outside it.
+// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges offset [2, 0], size [1, 4]
 
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
@@ -320,7 +322,7 @@ module {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0, d1)>}
         : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_4>
     %1 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(2, 0), (2, 3)>]
+      grid_ranges = [#ttcore.core_range<(2,0), 1x4>]
     } ins() outs(%0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_4>) {
       ^region_0:
         %2 = d2m.generic {
@@ -344,8 +346,9 @@ module {
 
 #layout_6b_5 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
-// 6. mapping present: only X axis out. Region (0,2)-(3,2) -> virtual (0,2)-(3,2); grid [0,0]-[1,1] has X 0,1 not in [2,2].
-// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 2] to [3, 2]
+// 6. mapping present: only X axis out. Region offset (0,2), size (4,1)
+// maps to virtual bbox (0,2)-(3,2); grid [0,0]-[1,1] has X 0,1 outside it.
+// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges offset [0, 2], size [4, 1]
 
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
@@ -354,7 +357,7 @@ module {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0, d1)>}
         : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_5>
     %1 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(0, 2), (3, 2)>]
+      grid_ranges = [#ttcore.core_range<(0,2), 4x1>]
     } ins() outs(%0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_5>) {
       ^region_0:
         %2 = d2m.generic {
@@ -378,8 +381,9 @@ module {
 
 #layout_6b_6 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
-// 6. mapping present: map (d0,d1)->(2-d0,d1) reverses Y; Region (0,0)-(1,0) -> virtual (1,0)-(2,0); grid [0,0] not in that range.
-// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 0] to [1, 0]
+// 6. mapping present: map (d0,d1)->(2-d0,d1) reverses Y. Region offset
+// (0,0), size (2,1) maps to virtual bbox (1,0)-(2,0); grid [0,0] is outside it.
+// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges offset [0, 0], size [2, 1]
 
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
@@ -388,7 +392,7 @@ module {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, 2 - d0, d1)>}
         : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_6>
     %1 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(0, 0), (1, 0)>]
+      grid_ranges = [#ttcore.core_range<(0,0), 2x1>]
     } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_6>) {
       ^region_0:
         %2 = d2m.generic {
@@ -412,8 +416,9 @@ module {
 
 #layout_6b_7 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
-// 6. mapping (d0,d1)->(d1,d0) swap: Region (0,2)-(0,2) -> virtual (2,0)-(2,0).
-// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 2] to [0, 2]
+// 6. mapping (d0,d1)->(d1,d0) swap: Region offset (0,2), size (1,1)
+// maps to virtual bbox (2,0)-(2,0).
+// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges offset [0, 2], size [1, 1]
 
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
@@ -422,7 +427,7 @@ module {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d1, d0)>}
         : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_7>
     %1 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(0, 2), (0, 2)>]
+      grid_ranges = [#ttcore.core_range<(0,2), 1x1>]
     } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_7>) {
       ^region_0:
         %2 = d2m.generic {
@@ -446,8 +451,9 @@ module {
 
 #layout_6b_8 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
-// 6. mapping (d0,d1)->(d0,d1-1) offset on X: Region (1,1)-(2,1) -> virtual (1,0)-(2,0).
-// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [1, 1] to [2, 1]
+// 6. mapping (d0,d1)->(d0,d1-1) offset on X: Region offset (1,1),
+// size (2,1) maps to virtual bbox (1,0)-(2,0).
+// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges offset [1, 1], size [2, 1]
 
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
@@ -456,7 +462,7 @@ module {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, d0, d1 - 1)>}
         : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_8>
     %1 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(1, 1), (2, 1)>]
+      grid_ranges = [#ttcore.core_range<(1,1), 2x1>]
     } ins() outs(%0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_6b_8>) {
       ^region_0:
         %2 = d2m.generic {
@@ -480,8 +486,9 @@ module {
 
 #layout_6b_9 = #ttcore.metal_layout<logical_shape = 128x128, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
 
-// 6. mapping (d0,d1)->(2*d0,d1) scale Y: Region (0,0)-(1,0) -> virtual (0,0)-(2,0); grid 2x2 needs X in [0,1] but virtual X only [0,0].
-// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges [0, 0] to [1, 0]
+// 6. mapping (d0,d1)->(2*d0,d1) scale Y: Region offset (0,0), size
+// (2,1) maps to virtual bbox (0,0)-(2,0); grid 2x2 needs X in [0,1].
+// CHECK: error: 'd2m.spatial' op generic op grid not contained in region grid_ranges offset [0, 0], size [2, 1]
 
 module {
   ttcore.device @default_device = <workerGrid = #ttcore.grid<8x8, virt_to_physical_map = (d0, d1) -> (0, d0, d1), physical_to_virt_map = (d0, d1) -> (0, d0, d1)>, dramGrid = #ttcore.grid<1x12>, l1Map = (d0, d1, d2)[s0] -> (0, d0, d1, d2 + s0), dramMap = (d0, d1, d2)[s0, s1] -> (0, 0, 0, d0 * s1 + d1 * s1 + d2 + s0), meshShape = , chipIds = [0]>
@@ -490,7 +497,7 @@ module {
     %0 = d2m.empty() {virtualGridInverseMapping = affine_map<(d0, d1) -> (0, 2 * d0, d1)>}
         : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>
     %1 = d2m.spatial {
-      grid_ranges = [#ttcore.core_range<(0, 0), (1, 0)>]
+      grid_ranges = [#ttcore.core_range<(0,0), 2x1>]
     } ins() outs(%0 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>) {
       ^region_0:
         %2 = d2m.generic {
@@ -507,5 +514,31 @@ module {
         d2m.spatial_yield %2 : (tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>)
     } : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>
     return %1 : tensor<2x2x2x2x!ttcore.tile<32x32, f32>, #layout_6b_9>
+  }
+}
+
+// -----
+
+// 7. grid_ranges must not overlap.
+// CHECK: error: 'd2m.spatial' op grid_ranges overlap: #ttcore.core_range<(0,0), 2x2> and #ttcore.core_range<(1,1), 2x2>
+
+#layout_overlap = #ttcore.metal_layout<logical_shape = 64x64, dim_alignments = 32x32, collapsed_intervals = dense<[[0, 1], [1, 2]]> : tensor<2x2xi64>, l1, sharded>
+
+module {
+  func.func @spatial_core_ranges_overlap(
+      %arg0: tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>)
+      -> (tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>,
+          tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>) {
+    %0:2 = d2m.spatial {
+      grid_ranges = [
+        #ttcore.core_range<(0,0), 2x2>,
+        #ttcore.core_range<(1,1), 2x2>
+      ]
+    } ins() outs(%arg0, %arg0 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>) {
+      ^region_0:
+      }, {
+      ^region_1:
+    } : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>
+    return %0#0, %0#1 : tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>, tensor<1x1x2x2x!ttcore.tile<32x32, f32>, #layout_overlap>
   }
 }
