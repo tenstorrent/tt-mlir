@@ -122,4 +122,44 @@ module {
       -> tensor<1x4x32x64xbf16>
     return %result : tensor<1x4x32x64xbf16>
   }
+
+  // Test 5: SDPADecode causal with a per-batch cur_pos_tensor and no sliding
+  // window. The decomposition synthesizes a {0, -inf} causal mask from cur_pos:
+  // -inf where index > cur_pos[b]. Sk = 512 > 256 on purpose: the index
+  // arithmetic (cur_pos cast, arange, gt, where) must run in f32 because bf16
+  // cannot represent odd integers above 256; only the final mask is cast back
+  // to Q's dtype (bf16) for the downstream SDPA op.
+  func.func @sdpa_decode_causal_cur_pos(
+    %query: tensor<1x4x32x64xbf16>,
+    %key: tensor<4x32x512x64xbf16>,
+    %value: tensor<4x32x512x64xbf16>,
+    %cur_pos: tensor<4xi32>
+  ) -> tensor<1x4x32x64xbf16> {
+    // CHECK-LABEL: func.func @sdpa_decode_causal_cur_pos
+    // CHECK-NOT: "ttnn.scaled_dot_product_attention_decode"
+    // cur_pos [B] -> [B, 1, 1, 1], then cast int32 -> f32.
+    // CHECK: "ttnn.reshape"
+    // CHECK: "ttnn.typecast"
+    // CHECK-SAME: tensor<4x1x1x1xf32
+    // arange over Sk in f32.
+    // CHECK: "ttnn.arange"
+    // CHECK-SAME: tensor<512xf32
+    // causal compare and select in f32 at the [B, 1, 1, Sk] mask shape.
+    // CHECK: "ttnn.gt"
+    // CHECK-SAME: tensor<4x1x1x512xf32
+    // CHECK: "ttnn.where"
+    // CHECK-SAME: tensor<4x1x1x512xf32
+    // final {0, -inf} mask cast back to Q's dtype.
+    // CHECK: "ttnn.typecast"
+    // CHECK-SAME: tensor<4x1x1x512xbf16
+    // CHECK: "ttnn.softmax"
+    %result = "ttnn.scaled_dot_product_attention_decode"(%query, %key, %value, %cur_pos) <{
+      operandSegmentSizes = array<i32: 1, 1, 1, 0, 1, 0>,
+      is_causal = true,
+      scale = 0.125 : f32
+    }> : (tensor<1x4x32x64xbf16>, tensor<4x32x512x64xbf16>,
+         tensor<4x32x512x64xbf16>, tensor<4xi32>)
+      -> tensor<1x4x32x64xbf16>
+    return %result : tensor<1x4x32x64xbf16>
+  }
 }
