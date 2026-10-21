@@ -6,9 +6,14 @@
 // A counted loop becomes `for _ in range(n)`, so it needs no counter variable
 // and never evaluates its condition. Loop-carried values become named locals
 // that the emitter reassigns at the end of the body.
+//
+// Each local starts out as a new handle on its init's buffer rather than as the
+// init itself. The init keeps its own name after the loop, and as one object, a
+// non-forced deallocation of the init would free a result that is still the
+// init, as after zero iterations.
 // CHECK-LABEL: def counted
-// CHECK: carried_0 =
-// CHECK: carried_1 =
+// CHECK: carried_0 = ttnn.Tensor(
+// CHECK: carried_1 = ttnn.Tensor(var_0)
 // CHECK: for _ in range(4):
 // CHECK-NOT: break
 // CHECK: carried_0, carried_1 = ttnn_add
@@ -79,4 +84,31 @@ func.func @swap(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>)
       ttir.yield %next, %b, %a : tensor<i32>, tensor<32x32xf32>, tensor<32x32xf32>
     } -> (tensor<i32>, tensor<32x32xf32>, tensor<32x32xf32>)
   return %r#1, %r#2 : tensor<32x32xf32>, tensor<32x32xf32>
+}
+
+// A capture the body yields is bound through a new handle, since it keeps its
+// own name outside the loop, and so is a value the body yields twice after the
+// first time. A value the body computes, or a carried one it moves between
+// slots, is bound as is.
+// CHECK-LABEL: def forwards
+// CHECK: for _ in range(2):
+// CHECK: carried_0, carried_1, carried_2, carried_3 = ttnn_add{{[_0-9]*}}, ttnn.Tensor(arg[1]), [[V:ttnn_multiply[_0-9]*]], ttnn.Tensor([[V]])
+func.func @forwards(%arg0: tensor<32x32xf32>, %arg1: tensor<32x32xf32>)
+    -> (tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>) {
+  %i0 = "ttir.constant"() <{value = dense<0> : tensor<i32>}> : () -> tensor<i32>
+  %limit = "ttir.constant"() <{value = dense<2> : tensor<i32>}> : () -> tensor<i32>
+  %step = "ttir.constant"() <{value = dense<1> : tensor<i32>}> : () -> tensor<i32>
+  %r:4 = ttir.while inits(%i0, %arg0, %arg0, %arg0 : tensor<i32>, tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>)
+                    captures(%limit, %step, %arg1 : tensor<i32>, tensor<i32>, tensor<32x32xf32>)
+    cond {
+    ^cond(%i: tensor<i32>, %a: tensor<32x32xf32>, %b: tensor<32x32xf32>, %c: tensor<32x32xf32>, %l: tensor<i32>, %s: tensor<i32>, %k: tensor<32x32xf32>):
+      %p = "ttir.lt"(%i, %l) : (tensor<i32>, tensor<i32>) -> tensor<i1>
+      ttir.yield %p : tensor<i1>
+    } do {
+    ^body(%i: tensor<i32>, %a: tensor<32x32xf32>, %b: tensor<32x32xf32>, %c: tensor<32x32xf32>, %l: tensor<i32>, %s: tensor<i32>, %k: tensor<32x32xf32>):
+      %next = "ttir.add"(%i, %s) : (tensor<i32>, tensor<i32>) -> tensor<i32>
+      %m = "ttir.multiply"(%b, %c) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+      ttir.yield %next, %k, %m, %m : tensor<i32>, tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>
+    } -> (tensor<i32>, tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>)
+  return %r#1, %r#2, %r#3 : tensor<32x32xf32>, tensor<32x32xf32>, tensor<32x32xf32>
 }

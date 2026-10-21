@@ -773,6 +773,86 @@ FailureOr<SmallVector<ReplacementItem>> WhileOp::parseFormatString() {
 }
 
 //===----------------------------------------------------------------------===//
+// CaseOp
+//===----------------------------------------------------------------------===//
+
+CaseYieldOp CaseOp::getBranchYield(unsigned index) {
+  return llvm::cast<CaseYieldOp>(getBranches()[index].front().getTerminator());
+}
+
+LogicalResult CaseOp::verify() {
+  if (getBranches().empty()) {
+    return emitOpError() << "expects at least one branch";
+  }
+
+  StringRef index = getIndex();
+  if (index.empty()) {
+    return emitOpError() << "index string must not be empty";
+  }
+
+  auto errorCallback = [&]() -> InFlightDiagnostic {
+    return this->emitOpError();
+  };
+  FailureOr<SmallVector<ReplacementItem>> fmt =
+      ::parseFormatString(index, getIndexArgs(), errorCallback);
+  if (failed(fmt)) {
+    return failure();
+  }
+  size_t numPlaceholders = llvm::count_if(*fmt, [](ReplacementItem &item) {
+    return std::holds_alternative<Placeholder>(item);
+  });
+  if (numPlaceholders != getIndexArgs().size()) {
+    return emitOpError()
+           << "requires operands for each placeholder in the index string";
+  }
+
+  // A branch runs at most once, so nothing is carried into it and its block
+  // takes no arguments.
+  TypeRange resultTypes = getResultTypes();
+  for (auto [branchIndex, region] : llvm::enumerate(getBranches())) {
+    Block &block = region.front();
+    if (block.getNumArguments() != 0) {
+      return emitOpError() << "expects branch " << branchIndex
+                           << " to take no arguments, but it takes "
+                           << block.getNumArguments();
+    }
+
+    // Not getBranchYield(): the trait that guarantees the terminator's type is
+    // a region trait, and those are verified after this, so the branch may
+    // still be empty or end in something else.
+    Operation *terminator = block.empty() ? nullptr : &block.back();
+    auto yieldOp = llvm::dyn_cast_if_present<CaseYieldOp>(terminator);
+    if (!yieldOp) {
+      continue;
+    }
+
+    // The yielded values and the results are the same Python variables, so
+    // every branch has to agree with the results.
+    TypeRange yieldedTypes = yieldOp.getOperandTypes();
+    if (yieldedTypes.size() != resultTypes.size()) {
+      return emitOpError() << "expected branch " << branchIndex << " to yield "
+                           << resultTypes.size() << " values, got "
+                           << yieldedTypes.size();
+    }
+    for (size_t i = 0; i < yieldedTypes.size(); ++i) {
+      if (yieldedTypes[i] != resultTypes[i]) {
+        return emitOpError()
+               << "value #" << i << " yielded by branch " << branchIndex
+               << " has type " << yieldedTypes[i] << " but result #" << i
+               << " has type " << resultTypes[i];
+      }
+    }
+  }
+
+  return success();
+}
+
+FailureOr<SmallVector<ReplacementItem>> CaseOp::parseFormatString() {
+  // Error checking is done in verify.
+  return ::parseFormatString(getIndex(), getIndexArgs());
+}
+
+//===----------------------------------------------------------------------===//
 // ConstantOp
 //===----------------------------------------------------------------------===//
 
