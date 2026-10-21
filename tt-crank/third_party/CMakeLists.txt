@@ -12,3 +12,7 @@ set(SPDLOG_BUILD_PIC ON CACHE INTERNAL "")
 FetchContent_MakeAvailable(tt-logger)
 
 mark_as_system_includes(tt-logger spdlog spdlog_header_only fmt fmt-header-only)
+
+if(TT_CRANK_BUILD_ONNX)
+    add_subdirectory(onnx)
+endif()
