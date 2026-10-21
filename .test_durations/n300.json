@@ -1359,3 +1359,4 @@
     "ttir_ops/workarounds/decomposition/test_decomposition_workarounds.py::test_reduce_scatter_without_workaround[ttnn-f32-1x2-rank2_dim1]": 2.645,
     "ttir_ops/workarounds/decomposition/test_decomposition_workarounds.py::test_reduce_scatter_without_workaround[ttnn-f32-1x2-rank3_dim1]": 1.894
 }
+
