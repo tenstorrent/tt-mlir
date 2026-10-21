@@ -24,9 +24,11 @@ module {
   }
 }
 
+// One ttir.mesh_partition per outstanding mesh axis, emitted tensor dim by
+// tensor dim.
 // CHECK-LABEL: func.func @test_sdy_all_slice_composite
 // CHECK: "ttir.mesh_partition"
-// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 1 : si32}> : (tensor<4x32xbf16>) -> tensor<4x16xbf16>
+// CHECK-SAME: <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<4x32xbf16>) -> tensor<1x32xbf16>
 // CHECK: "ttir.mesh_partition"
-// CHECK-SAME: <{cluster_axis = 1 : ui32, dim = 0 : si32}> : (tensor<4x16xbf16>) -> tensor<1x16xbf16>
+// CHECK-SAME: <{cluster_axis = 0 : ui32, dim = 1 : si32}> : (tensor<1x32xbf16>) -> tensor<1x16xbf16>
 // CHECK-NOT: func.func private @sdy.all_slice1
