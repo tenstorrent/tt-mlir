@@ -50,6 +50,8 @@ static constexpr double kCBFragCushionFraction = 0.10;
 //                         a live tensor sits in the CB region
 //   large_tensor_shortlived  keep the 40 % large-tensor guard for tensors
 //                         consumed by the very next op as well
+//   l1_fed_margin         full CB-zone cushion for ops whose device operands
+//                         are all in L1 (instead of half of it)
 static bool optDisabled(const char *name) {
   const char *env = std::getenv("TTMLIR_OPT_DISABLE");
   return env && llvm::StringRef(env).contains(name);
@@ -69,6 +71,31 @@ static bool cbZoneCompactDisabled() {
 static bool shortLivedExemptionDisabled() {
   static const bool disabled = optDisabled("large_tensor_shortlived");
   return disabled;
+}
+static bool l1FedMarginDisabled() {
+  static const bool disabled = optDisabled("l1_fed_margin");
+  return disabled;
+}
+
+// True when every ranked-tensor operand that lives on the device is in L1
+// (host / system-memory operands such as unprepared weights do not count).
+static bool allDeviceOperandsInL1(Operation *op) {
+  bool anyDevice = false;
+  for (Value operand : op->getOperands()) {
+    auto type = mlir::dyn_cast<RankedTensorType>(operand.getType());
+    if (!type) {
+      continue;
+    }
+    auto layout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(type.getEncoding());
+    if (!layout || layout.getBufferType() == BufferType::SystemMemory) {
+      continue;
+    }
+    anyDevice = true;
+    if (!layout.hasL1BufferType()) {
+      return false;
+    }
+  }
+  return anyDevice;
 }
 
 // Release-build probe for attributing a spill/eviction to the branch that
@@ -945,15 +972,25 @@ uint64_t L1SpillManagement<MemoryTracker>::ensureFitsL1(
         occupied > operandBytesInOccupied ? occupied - operandBytesInOccupied : 0;
 
     uint64_t footprint = cbPeakUsage + l1BuffersPeakUsage;
-    uint64_t needed = footprint + othersOccupied + cbFragCushion;
+    // The cushion covers the op-model under-reporting its runtime footprint,
+    // which happens for ops that read DRAM (the in-op DRAM->L1 shard copy is
+    // ~150 KB short in l1_buffers_peak). An op whose device tensor operands
+    // all sit in L1 gets half of it; the full cushion evicted long-lived L1
+    // tensors in front of L1-fed convs that fit at runtime.
+    // TTMLIR_OPT_DISABLE=l1_fed_margin keeps the full cushion everywhere.
+    uint64_t margin = cbFragCushion;
+    if (!l1FedMarginDisabled() && allDeviceOperandsInL1(op)) {
+      margin = cbFragCushion / 2;
+    }
+    uint64_t needed = footprint + othersOccupied + margin;
     bool cbZoneFires = footprint > 0 && footprint <= l1BudgetPerCore &&
                        needed > l1BudgetPerCore;
     SPILL_PROBE("  CB_ZONE_TEST pos={0} cbPeak={1} transientPeak={2} footprint={3} "
                 "occupied={4} operandBytes={5} needed={6} budget={7} "
-                "nTracked={8} fires={9}",
+                "nTracked={8} fires={9} margin={10}",
                 pos, cbPeakUsage, l1BuffersPeakUsage, footprint, occupied,
                 operandBytesInOccupied, needed, l1BudgetPerCore,
-                memoryTracker.getTrackedCount(), cbZoneFires);
+                memoryTracker.getTrackedCount(), cbZoneFires, margin);
     if (cbZoneFires) {
       uint64_t cbVT = l1BudgetPerCore > footprint ? l1BudgetPerCore - footprint : 0;
       bool anyEvicted = false;
