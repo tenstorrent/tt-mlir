@@ -80,6 +80,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNRecoverStructure.cpp
         TTNNRecoverStructureUtils.cpp
         TTNNSetComputeKernelConfig.cpp
+        TTNNLowFidelityMatmulCompute.cpp
         TTNNMemoryManagement.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp

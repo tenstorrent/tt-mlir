@@ -717,6 +717,30 @@ def TTNNSetComputeKernelConfig: Pass<"ttnn-set-compute-kernel-config", "::mlir::
   ];
 }
 
+def TTNNLowFidelityMatmulCompute : Pass<"ttnn-low-fidelity-matmul-compute", "::mlir::ModuleOp"> {
+  let summary = "Run conv2d, conv_transpose2d, matmul and linear at a lower math fidelity.";
+  let description = [{
+    Sets `math_fidelity = hifi2` and `fp32_dest_acc_en = true` in the
+    compute config of every conv2d, conv_transpose2d, matmul and linear op
+    except those whose activation spatial size is above 100,000 pixels,
+    overriding the pipeline defaults the compute-kernel-config pass applied
+    (HiFi3). HiFi2 makes two FPU passes per tile product instead of three;
+    on bf16 activations with bfp8 weights the third pass only adds the low
+    mantissa bits of the activation. The highest-resolution stage keeps the
+    pipeline fidelity: every downstream layer inherits its rounding, and on
+    an image backbone HiFi2 on those convs alone cost 0.03 of PCC against
+    the reference outputs while HiFi2 on every other layer cost nothing
+    measurable. LoFi (one pass) and bf16 accumulation were measured as
+    well and cost 0.02 to 0.05. Runs after the compute-kernel-config pass
+    and before the layout analyses, so the op model sees the final configs.
+    TTMLIR_OPT_DISABLE=lofi turns the pass into a no-op; the release-build
+    hooks TTMLIR_MATMUL_FIDELITY=lofi|hifi2|hifi3|hifi4,
+    TTMLIR_MATMUL_FP32_ACC=0|1 and TTMLIR_MATMUL_KEEP_PRECISE=<loc substrings>
+    exist for experiments.
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
+}
+
 def TTNNRecoverStructure: Pass<"ttnn-recover-structure", "::mlir::ModuleOp"> {
   let summary = "Recover program structure by splitting IR into multiple functions based on source locations.";
   let description = [{
