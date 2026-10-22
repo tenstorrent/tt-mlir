@@ -1,0 +1,25 @@
+# DO NOT MERGE. Branch-only: builds the tt-crank wheel (artifact `ttcrank-wheel`) on every push to
+# this branch, so the fix can be tested downstream without dispatching the whole "Nightly run".
+# Same image and wheel jobs the nightly uses.
+name: Build tt-crank Wheel (branch)
+
+on:
+  push:
+    branches: [ "mmilosevic/tt-crank-opmodel-live-device" ]
+
+permissions:
+  checks: write
+  packages: write
+
+jobs:
+  build-image:
+    uses: ./.github/workflows/call-build-docker.yml
+    secrets: inherit
+    with:
+      dockbuild: "all"
+  crank-wheel-build:
+    needs: build-image
+    uses: ./.github/workflows/call-build-crank-wheel.yml
+    secrets: inherit
+    with:
+      docker_image: ${{ needs.build-image.outputs.docker-image }}
