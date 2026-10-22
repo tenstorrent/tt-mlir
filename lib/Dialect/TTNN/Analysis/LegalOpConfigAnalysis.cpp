@@ -18,6 +18,7 @@
 #include "llvm/Support/ErrorHandling.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
@@ -32,6 +33,16 @@ static bool haloReallocDisabled() {
   static const bool disabled = [] {
     const char *env = std::getenv("TTMLIR_OPT_DISABLE");
     return env && llvm::StringRef(env).contains("halo_realloc");
+  }();
+  return disabled;
+}
+
+// Kill switch (comma list in TTMLIR_OPT_DISABLE) for the taller activation
+// blocks of large-spatial convs.
+static bool largeSpatialActBlockDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("large_spatial_abh");
   }();
   return disabled;
 }
@@ -356,10 +367,42 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
           effectiveSearchSpace.reallocateHaloOutput = {false};
         }
         if (spatialSize > 100000) {
-          effectiveSearchSpace.actBlockHOverride = {64, 32};
+          // The sharded conv writer multicasts the whole weight block once
+          // per activation block, so with 64-row blocks a 2880-row shard
+          // receives the weights 45 times. Taller blocks are tried first
+          // (320 = 10 tile rows: 9 blocks per shard); the op model rejects
+          // the ones whose tilized activation CB does not fit next to the
+          // halo'd input, and the rule book prefers the tallest that fits.
+          // TTMLIR_OPT_DISABLE=large_spatial_abh keeps the {64, 32} set.
+          if (largeSpatialActBlockDisabled()) {
+            effectiveSearchSpace.actBlockHOverride = {64, 32};
+          } else {
+            effectiveSearchSpace.actBlockHOverride = {320, 192, 64, 32};
+          }
           effectiveSearchSpace.enableActDoubleBuffer = {false};
           effectiveSearchSpace.enableWeightsDoubleBuffer = {false};
           effectiveSearchSpace.reshardIfNotOptimal = {false};
+        }
+        // Release-build experiment hook: TTMLIR_CONV_ABH_OVERRIDE=
+        // "<loc substring>=<rows>[,<loc substring>=<rows>...]" pins the
+        // activation block height of the matching convs (0 = auto).
+        if (const char *ov = std::getenv("TTMLIR_CONV_ABH_OVERRIDE")) {
+          std::string locName;
+          if (auto nameLoc = mlir::dyn_cast<NameLoc>(op->getLoc())) {
+            locName = nameLoc.getName().str();
+          }
+          llvm::SmallVector<llvm::StringRef> items;
+          llvm::StringRef(ov).split(items, ',', -1, false);
+          for (llvm::StringRef item : items) {
+            auto [pat, val] = item.split('=');
+            unsigned rows = 0;
+            if (!pat.empty() && llvm::StringRef(locName).contains(pat) &&
+                !val.getAsInteger(10, rows)) {
+              effectiveSearchSpace.actBlockHOverride = {rows};
+              llvm::errs() << "[CONV_ABH_OVERRIDE] " << locName
+                           << " act_block_h_override=" << rows << "\n";
+            }
+          }
         }
 
         Conv2dConfigGenerator configGenerator(&convOp, conv2dConfigAttrBase,
