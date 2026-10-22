@@ -211,6 +211,10 @@ void createTTNNPipelineAnalysisPasses(
           innerPm.addPass(
               mlir::tt::ttnn::createTTNNGreedyMemoryLayoutPropagation(
                   propagationOptions));
+          // Tiled intermediate activations as bfp_bf8 now that the page
+          // layouts are known and before the spill pass sizes the tensors
+          // (kill switch TTMLIR_OPT_DISABLE=bfp8_intermediates).
+          innerPm.addPass(mlir::tt::ttnn::createTTNNBlockFloatIntermediates());
           if (memLayoutEnabled) {
             // Order sibling producers so the L1-fed one runs first; the
             // spill pass then sees its input freed before the DRAM-fed op.
