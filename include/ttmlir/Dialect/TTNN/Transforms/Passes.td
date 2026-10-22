@@ -741,6 +741,31 @@ def TTNNLowFidelityMatmulCompute : Pass<"ttnn-low-fidelity-matmul-compute", "::m
   let dependentDialects = ["mlir::tt::ttnn::TTNNDialect"];
 }
 
+def TTNNBlockFloatIntermediates : Pass<"ttnn-block-float-intermediates", "::mlir::ModuleOp"> {
+  let summary = "Write tiled intermediate activations as bfp_bf8.";
+  let description = [{
+    Runs after memory layout propagation (page layouts are known) and before
+    L1 spill management (which then sizes the tensors as they will be). The
+    tiled bf16 result of every conv2d, conv_transpose2d, matmul and linear
+    whose uses never leave the tiled world (no untilize, no function return)
+    becomes bfp_bf8, except for ops whose activation spatial size is above
+    100,000 pixels (the highest-resolution stage, whose rounding every
+    downstream layer inherits: bfp8 there alone cost several hundredths of
+    PCC against the reference outputs of an image backbone), the dtype follows through views, memory moves and
+    tile-to-tile layout ops, and a concat or binary op whose inputs are all
+    bfp_bf8 produces bfp_bf8 too. Where a concat or binary op would mix the
+    two dtypes, a bf16 input that comes from a tilize is tilized straight to
+    bfp_bf8 (the layout decomposition fuses the cast); any other bf16 input
+    gets an explicit typecast. Every op that moves these tensors (halos,
+    slices, concats, reshards, spills) then moves half the bytes, and the
+    convolutions unpack bfp_bf8 activation tiles. TTMLIR_OPT_DISABLE=
+    bfp8_intermediates turns the pass into a no-op; the release-build hooks
+    TTMLIR_BFP8_LARGE_SPATIAL_PIXELS and TTMLIR_BFP8_KEEP_PRECISE=<loc
+    substrings> exist for experiments.
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect", "mlir::func::FuncDialect"];
+}
+
 def TTNNRecoverStructure: Pass<"ttnn-recover-structure", "::mlir::ModuleOp"> {
   let summary = "Recover program structure by splitting IR into multiple functions based on source locations.";
   let description = [{
