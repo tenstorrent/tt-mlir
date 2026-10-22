@@ -423,16 +423,26 @@ private:
     if (memLayout.getValue() != TensorMemoryLayout::HeightSharded) {
       return false;
     }
+    // A height-sharded tensor whose shards are not tile sized (40 rows per
+    // core, say) cannot be tilized on its shards either, even when the whole
+    // tensor is tile aligned.
+    llvm::SmallVector<int64_t> hsShard = encoding.getShardShape();
+    if (hsShard.size() == 2 &&
+        (hsShard[0] % TILE_HEIGHT != 0 || hsShard[1] % TILE_WIDTH != 0)) {
+      return true;
+    }
     return (shape[rank - 2] % TILE_HEIGHT != 0) ||
            (shape[rank - 1] % TILE_WIDTH != 0);
   }
 
   // Workaround for tt-metal#30541: unshard -> pad -> tilize -> slice.
-  // Returns a DRAM INTERLEAVED, tilized, original-shape tensor. The caller is
-  // responsible for any subsequent typecast and the final memory config.
-  mlir::Value handleShardedTilizeWithPadding(IRRewriter &rewriter,
-                                             mlir::Value current,
-                                             ttnn::Layout targetLayout) const {
+  // Returns an interleaved, tilized, original-shape tensor in `stagingBuffer`
+  // (DRAM, or L1 when the final layout is L1 interleaved so the chain never
+  // leaves L1). The caller is responsible for any subsequent typecast and the
+  // final memory config.
+  mlir::Value handleShardedTilizeWithPadding(
+      IRRewriter &rewriter, mlir::Value current, ttnn::Layout targetLayout,
+      BufferType stagingBuffer = BufferType::DRAM) const {
     auto inputType = mlir::cast<RankedTensorType>(current.getType());
     TTNNLayoutAttr inputEncoding =
         mlir::cast<TTNNLayoutAttr>(inputType.getEncoding());
@@ -440,10 +450,10 @@ private:
     int64_t rank = inputType.getRank();
     Location loc = current.getLoc();
 
-    // Step 1: Unshard to DRAM INTERLEAVED.
+    // Step 1: Unshard to interleaved (DRAM, or L1 for an L1 target).
     TTNNLayoutAttr dramEncoding =
         TTNNLayoutAttr::Builder(inputEncoding, shape)
-            .setBufferType(BufferType::DRAM)
+            .setBufferType(stagingBuffer)
             .setMemoryLayout(TensorMemoryLayout::Interleaved)
             .setGridShape({1, 1})
             .build();
@@ -532,8 +542,10 @@ private:
                                TTNNLayoutAttr output,
                                bool padWorkaround) const {
     if (padWorkaround) {
-      return handleShardedTilizeWithPadding(rewriter, current,
-                                            output.getLayout());
+      return handleShardedTilizeWithPadding(
+          rewriter, current, output.getLayout(),
+          output.hasInterleavedL1TensorMemoryLayout() ? BufferType::L1
+                                                      : BufferType::DRAM);
     }
     return createToLayoutOp(rewriter, current, output.getLayout());
   }

@@ -71,6 +71,19 @@ static std::string probeHintString(const OpConfig &cfg) {
   }
   return out;
 }
+// Kill switch (comma list in TTMLIR_OPT_DISABLE) for the small-tensor
+// L1-interleaved re-tile candidates.
+static bool smallL1RetileDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("small_l1_retile");
+  }();
+  return disabled;
+}
+// Largest tensor (bytes, whole tensor) whose row-major -> tiled re-tile may
+// be placed in L1 interleaved: 1 MB is 16 KB per core on a 64-core grid.
+static constexpr uint64_t kSmallRetileTensorBytes = 1u << 20;
+
 static bool returnDramOutputDisabled() {
   static const bool disabled = [] {
     const char *env = std::getenv("TTMLIR_OPT_DISABLE");
@@ -941,8 +954,36 @@ void MemoryLayoutPropagation::addL1InterleavedFallbacks(
     if (!ml || !isShardedMemoryLayout(ml.getValue())) {
       continue;
     }
-    if (!validateReshard(op, inputTensorType.getShape(), prodOut,
-                         l1Interleaved)) {
+    // A page-layout change (row-major shards -> tiled interleaved) is not a
+    // plain memory move: it is materialized as to_tensor_spec and decomposed
+    // later into pad + tilize, which the reshard validation cannot model,
+    // so those are only offered for small tensors (the decomposed chain of
+    // a tensor this size has no measurable L1 footprint). Without this the
+    // only tiled candidate is the DRAM-interleaved default and the pad +
+    // tilize + consumer run on a DRAM tensor. TTMLIR_OPT_DISABLE=
+    // small_l1_retile keeps the DRAM path.
+    if (prodOut.isTiled() != l1Interleaved.isTiled()) {
+      // Only when the tensor cannot be tilized on tile-sized shards at all
+      // (row count not a tile multiple): a tile-aligned tensor keeps the
+      // sharded tilize path, which is cheaper than the interleaved copy.
+      llvm::ArrayRef<int64_t> shp = inputTensorType.getShape();
+      int64_t rows = 1;
+      for (size_t i = 0; i + 1 < shp.size(); ++i) {
+        rows *= shp[i];
+      }
+      if (shp.size() < 2 || rows % TILE_HEIGHT == 0) {
+        continue;
+      }
+      Type scalar = inputTensorType.getElementType();
+      uint64_t bytes = scalar.isIntOrFloat()
+                           ? inputTensorType.getNumElements() *
+                                 llvm::divideCeil(scalar.getIntOrFloatBitWidth(), 8)
+                           : std::numeric_limits<uint64_t>::max();
+      if (smallL1RetileDisabled() || bytes > kSmallRetileTensorBytes) {
+        continue;
+      }
+    } else if (!validateReshard(op, inputTensorType.getShape(), prodOut,
+                                l1Interleaved)) {
       continue;
     }
     InputCandidate ic;
@@ -950,6 +991,8 @@ void MemoryLayoutPropagation::addL1InterleavedFallbacks(
     ic.producerCandidateIndex = pIdx;
     ic.isReshard = true;
     candidates.push_back(ic);
+    LAYOUT_PROBE(op, "L1_INTERLEAVED_FALLBACK {0}: {1} -> {2}",
+                 probeOpLabel(op), prodOut, l1Interleaved);
   }
 
   TTMLIR_TRACE(ttmlir::LogComponent::GreedyOptimizer,
