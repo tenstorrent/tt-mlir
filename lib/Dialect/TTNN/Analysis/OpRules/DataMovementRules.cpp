@@ -36,6 +36,16 @@ static bool optRuleDisabled(llvm::StringRef name) {
 // ConcatRuleBook
 //===----------------------------------------------------------------------===//
 
+// Kill switch (comma list in TTMLIR_OPT_DISABLE) for the L1-interleaved
+// concat output hints.
+static bool concatL1InterleavedDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("concat_l1_interleaved");
+  }();
+  return disabled;
+}
+
 LayoutFilterFn
 ConcatRuleBook::getInputLayoutFilter(unsigned /*operandIdx*/) const {
   // Concat sharded inputs: re-enabled after tt-metal hang fix landed.
@@ -120,13 +130,46 @@ OutputHints ConcatRuleBook::getOutputHints(
   OutputHints result;
   result.hints.push_back(OpConfig(TTNNLayoutAttr()));
 
+  // Interleaved inputs can only produce an interleaved output, and the NULL
+  // hint puts it in DRAM; offer the L1-interleaved configs too so a concat of
+  // small L1 tensors stays in L1 instead of a DRAM round trip in front of its
+  // consumer. TTMLIR_OPT_DISABLE=concat_l1_interleaved keeps the DRAM-only
+  // behaviour.
+  auto outputType =
+      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
+  if (!concatL1InterleavedDisabled() && outputType) {
+    bool haveL1Interleaved = false;
+    for (const auto &cfg : legalConfigs) {
+      if (!cfg.outputLayout || !cfg.outputLayout.hasL1BufferType()) {
+        continue;
+      }
+      auto memLayout = cfg.outputLayout.getMemLayout();
+      if (memLayout && !isShardedMemoryLayout(memLayout.getValue())) {
+        result.hints.push_back(cfg);
+        haveL1Interleaved = true;
+      }
+    }
+    // The legal configs only carry sharded layouts for this op; build the
+    // L1-interleaved layout from the result's own layout.
+    auto resultLayout =
+        mlir::dyn_cast_or_null<TTNNLayoutAttr>(outputType.getEncoding());
+    if (!haveL1Interleaved && resultLayout) {
+      ttcore::DeviceAttr device = ttcore::lookupDevice(op);
+      TTNNLayoutAttr l1Interleaved =
+          TTNNLayoutAttr::Builder(resultLayout, outputType.getShape())
+              .setBufferType(BufferType::L1)
+              .setMemoryLayout(TensorMemoryLayout::Interleaved)
+              .setGridShape(device.getWorkerGrid().getShape())
+              .build();
+      result.hints.push_back(OpConfig(l1Interleaved));
+    }
+  }
+
   // Reject sharded output hints when the concat output tensor has non-tile-
   // aligned inner dimensions. tt-metal hangs during UntilizeWithUnpadding when
   // a height-sharded tensor has non-tile-aligned penultimate or last dim
   // (e.g. 32x32x17x16).
   // https://github.com/tenstorrent/tt-metal/issues/41504
-  auto outputType =
-      mlir::dyn_cast<RankedTensorType>(op->getResult(0).getType());
   if (outputType) {
     llvm::ArrayRef<int64_t> shape = outputType.getShape();
     int64_t rank = shape.size();
