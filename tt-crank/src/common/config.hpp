@@ -49,6 +49,9 @@ FS_WITH_DISABLER(tensor_borrowing, true, "TT_CRANK_TENSOR_BORROWING_DISABLED");
 // Warns user that a borrowed tensor's in-place writes cannot be detected.
 FS_WITH_DISABLER(warn_on_unsafe_borrow, true, "TT_CRANK_WARN_ON_UNSAFE_BORROW_DISABLED");
 
+// Runs the compiler's op validation on the open runtime device instead of a mock device.
+FS_WITH_DISABLER(opmodel_live_device, true, "TT_CRANK_OPMODEL_LIVE_DEVICE_DISABLED");
+
 // Config section.
 
 constexpr size_t cfg_monitor_max_slots = 64;

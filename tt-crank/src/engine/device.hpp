@@ -24,6 +24,9 @@ namespace tt::crank {
 // different mesh via open_runtime_device_mesh().
 TT_CRANK_API const ::tt::runtime::Device &runtime_device();
 
+// The process-wide MeshDevice if it is already open, null otherwise. Unlike runtime_device(), never opens it.
+TT_CRANK_API const ::tt::runtime::Device *opened_runtime_device();
+
 // Number of physical chips available.
 TT_CRANK_API std::uint32_t runtime_device_num_chips();
 

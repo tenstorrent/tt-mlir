@@ -79,6 +79,8 @@ public:
         return *m_device;
     }
 
+    const ::tt::runtime::Device *opened_device() const { return m_device.has_value() ? &*m_device : nullptr; }
+
     std::uint32_t num_chips() { return sys_desc()->chip_desc_indices()->size(); }
     mlir::tt::ttcore::Arch arch() { return to_ttcore_arch(sys_desc()->chip_descs()->Get(0)->arch()); }
 
@@ -173,6 +175,10 @@ static DeviceState device_state;
 
 const ::tt::runtime::Device &runtime_device() {
     return device_state.device();
+}
+
+const ::tt::runtime::Device *opened_runtime_device() {
+    return device_state.opened_device();
 }
 
 std::uint32_t runtime_device_num_chips() {

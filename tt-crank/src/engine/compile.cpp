@@ -204,6 +204,24 @@ void set_pipeline_options(const CompileOptions &options, mlir::tt::ttnn::TTIRToT
     pm_opts.meshTopology = mesh_topology;
 }
 
+// Points the optimizer's op validation at the open runtime device. Without it, tt-mlir validates against a mock
+// device it rebuilds from UMD discovery next to the runtime's silicon context, and on one chip of a P300 board
+// those op constraint queries fail in the backend (ttnn.reshape: vector::_M_range_check).
+void set_opmodel_device(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
+    if (!opmodel_live_device_enabled() || use_sim_enabled()) {
+        return;
+    }
+
+    // Only a device that is already open: compiling must not open one as a side effect.
+    const ::tt::runtime::Device *device = ::tt::crank::opened_runtime_device();
+    if (device == nullptr) {
+        return;
+    }
+
+    pm_opts.devicePtr =
+        device->asSharedPtr<::tt::tt_metal::distributed::MeshDevice>(::tt::runtime::getCurrentDeviceRuntime());
+}
+
 // Attaches system descriptor attribute to module op.
 void attach_sys_desc_attr(mlir::ModuleOp module_op, const std::string &diag_buffer) {
     void *sys_desc_handle = tt::crank::sys_desc().handle.get();
@@ -281,6 +299,7 @@ CompileResult run_ttir_to_ttnn_and_emit(mlir::ModuleOp module_op, const CompileO
     }
 
     attach_sys_desc_attr(module_op, diag_buffer);
+    set_opmodel_device(pm_opts);
 
     mlir::PassManager pm(module_op.getContext(), mlir::ModuleOp::getOperationName());
     mlir::tt::ttnn::createTTIRToTTNNRuntimePipeline(pm, pm_opts);
