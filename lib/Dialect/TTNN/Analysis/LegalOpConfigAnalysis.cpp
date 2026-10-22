@@ -18,12 +18,23 @@
 #include "llvm/Support/ErrorHandling.h"
 
 #include "llvm/ADT/DenseSet.h"
+#include "llvm/ADT/StringRef.h"
 #include "llvm/Support/raw_ostream.h"
 
 #include <cstdlib>
 #include <vector>
 
 namespace mlir::tt::ttnn {
+
+// Kill switch (comma list in TTMLIR_OPT_DISABLE) for the no-halo-reallocate
+// default of the small conv stages.
+static bool haloReallocDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("halo_realloc");
+  }();
+  return disabled;
+}
 
 static bool isOpEnabledForAnalysis(Operation *op) {
   // Enable only for specific ops.
@@ -334,6 +345,16 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         Conv2dConfigSearchSpace effectiveSearchSpace = searchSpace;
         int64_t spatialSize =
             (int64_t)convOp.getInputHeight() * convOp.getInputWidth();
+        // Small stages consume the halo output in place: the compaction copy
+        // tt-metal makes by default (a Move op per conv that re-allocates
+        // the halo'd input) only pays off when L1 is fragmented, which the
+        // large bf16 stages still are (the stem conv's 553 KB halo'd input
+        // failed to allocate without it). TTMLIR_OPT_DISABLE=halo_realloc
+        // restores the tt-metal default everywhere.
+        constexpr int64_t kNoHaloReallocMaxPixels = 4096;
+        if (!haloReallocDisabled() && spatialSize <= kNoHaloReallocMaxPixels) {
+          effectiveSearchSpace.reallocateHaloOutput = {false};
+        }
         if (spatialSize > 100000) {
           effectiveSearchSpace.actBlockHOverride = {64, 32};
           effectiveSearchSpace.enableActDoubleBuffer = {false};
