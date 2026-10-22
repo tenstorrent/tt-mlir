@@ -3148,9 +3148,17 @@ public:
     // NCHW-native (unlike GridSample which required NHWC format conversion).
     // Map the TTIR channel-order enum to the TTNN channel-order enum (same cases).
     ttnn::PixelUnshuffleChannelOrder ttnnChannelOrder =
-        (op.getChannelOrder() == ttir::PixelUnshuffleChannelOrder::SpatialMajor)
-            ? ttnn::PixelUnshuffleChannelOrder::SpatialMajor
-            : ttnn::PixelUnshuffleChannelOrder::ChannelMajor;
+        ttnn::PixelUnshuffleChannelOrder::ChannelMajor;
+    switch (op.getChannelOrder()) {
+    case ttir::PixelUnshuffleChannelOrder::ChannelMajor:
+      break;
+    case ttir::PixelUnshuffleChannelOrder::SpatialMajor:
+      ttnnChannelOrder = ttnn::PixelUnshuffleChannelOrder::SpatialMajor;
+      break;
+    case ttir::PixelUnshuffleChannelOrder::ColumnMajorPadded:
+      ttnnChannelOrder = ttnn::PixelUnshuffleChannelOrder::ColumnMajorPadded;
+      break;
+    }
     rewriter.replaceOpWithNewOp<ttnn::PixelUnshuffleOp>(
         op, outputType,
         adaptor.getInput(),

@@ -286,8 +286,18 @@ private:
                      .getResult();
 
     // 4. In-place sharded tilize (decomposed later into one ttnn.to_layout).
+    //    With the column-major padded order the row-major shard is twice as
+    //    wide (Cp = R * 32); its bf16 tiled copy next to it does not fit L1,
+    //    so the tilize writes the weight's block-float dtype (the linear
+    //    unpacks bfp8 activation tiles; the folded stem's output stays bf16).
     auto flatTileTy =
         utils::RankedTensorTypeFactory::create(flatRmTy, Layout::Tile);
+    if (targetDtype != BFPDtype::None &&
+        s.pu.getChannelOrder() ==
+            PixelUnshuffleChannelOrder::ColumnMajorPadded) {
+      flatTileTy = utils::RankedTensorTypeFactory::create(
+          flatTileTy, bfpDtypeToDataType(targetDtype));
+    }
     Value tiled = b.create<ToTensorSpecOp>(loc, flatTileTy, flat).getResult();
 
     // 5. Weight [Cout, Cp, 1, 1] (host) -> DRAM -> [Cout, Cp] -> [Cp, Cout]

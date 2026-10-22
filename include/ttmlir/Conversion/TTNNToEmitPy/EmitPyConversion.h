@@ -495,6 +495,8 @@ struct EmitPyTypeConverter<::mlir::tt::ttnn::PixelUnshuffleChannelOrder> {
       return "ttnn.PixelUnshuffleChannelOrder.CHANNEL_MAJOR";
     case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::SpatialMajor:
       return "ttnn.PixelUnshuffleChannelOrder.SPATIAL_MAJOR";
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ColumnMajorPadded:
+      return "ttnn.PixelUnshuffleChannelOrder.COLUMN_MAJOR_PADDED";
     }
     llvm_unreachable("Unknown PixelUnshuffleChannelOrder");
   }

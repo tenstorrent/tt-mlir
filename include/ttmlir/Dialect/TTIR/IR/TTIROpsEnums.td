@@ -22,7 +22,8 @@ def TTIR_ReduceDim : I32EnumAttr<"ReduceDim", "TTIR ReduceDim", [
 
 def TTIR_PixelUnshuffleChannelOrder : I32EnumAttr<"PixelUnshuffleChannelOrder", "TTIR pixel unshuffle channel order", [
                                   I32EnumAttrCase<"ChannelMajor", 0, "channel_major">,
-                                  I32EnumAttrCase<"SpatialMajor", 1, "spatial_major">
+                                  I32EnumAttrCase<"SpatialMajor", 1, "spatial_major">,
+                                  I32EnumAttrCase<"ColumnMajorPadded", 2, "column_major_padded">
                                 ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttir";
