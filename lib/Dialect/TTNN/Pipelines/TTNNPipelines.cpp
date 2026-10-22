@@ -562,6 +562,9 @@ void createTTIRToTTNNCommonPipeline(
     setConfigOptions.packerL1Acc = options.computeCfgPackerL1Acc.getValue();
     setConfigOptions.dstFullSyncEn = options.computeCfgDstFullSyncEn.getValue();
     devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
+    // Convolutions and matmuls at LoFi with bf16 accumulation (kill switch
+    // TTMLIR_OPT_DISABLE=lofi), after the pipeline defaults above.
+    devicePm.addPass(createTTNNLowFidelityMatmulCompute());
 
     if (options.enableCreateD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {
