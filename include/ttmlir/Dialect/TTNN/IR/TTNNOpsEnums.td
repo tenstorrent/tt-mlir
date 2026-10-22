@@ -371,6 +371,7 @@ def TTNN_Conv2dSliceType : I32EnumAttr<"Conv2dSliceType", "Conv2d slice type", [
 def TTNN_PixelUnshuffleChannelOrder : I32EnumAttr<"PixelUnshuffleChannelOrder", "TTNN pixel unshuffle channel order", [
   I32EnumAttrCase<"ChannelMajor", 0, "channel_major">,
   I32EnumAttrCase<"SpatialMajor", 1, "spatial_major">,
+  I32EnumAttrCase<"ColumnMajorPadded", 2, "column_major_padded">,
 ]> {
   let genSpecializedAttr = 0;
   let cppNamespace = "::mlir::tt::ttnn";

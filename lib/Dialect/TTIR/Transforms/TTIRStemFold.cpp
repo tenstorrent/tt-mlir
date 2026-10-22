@@ -98,6 +98,7 @@
 #include "mlir/IR/BuiltinAttributes.h"
 #include "mlir/IR/PatternMatch.h"
 #include "mlir/Transforms/GreedyPatternRewriteDriver.h"
+#include <cstdlib>
 #include "llvm/ADT/APFloat.h"
 #include "llvm/ADT/SmallVector.h"
 
@@ -502,9 +503,31 @@ public:
       : rw(rewriter), m(match), loc(m.outConv.getLoc()),
         elemTy(mlir::cast<RankedTensorType>(m.outConv.getWeight().getType())
                    .getElementType()),
-        RR(m.R * m.R), K(m.Cin * RR), Cp(llvm::alignTo(K, 32)) {}
+        RR(m.R * m.R), K(m.Cin * RR), fpuOrder(useFpuOrder(match, elemTy)),
+        Cp(fpuOrder ? m.R * 32 : llvm::alignTo(K, 32)) {}
 
   int64_t paddedChannels() const { return Cp; }
+  PixelUnshuffleChannelOrder channelOrder() const {
+    return fpuOrder ? PixelUnshuffleChannelOrder::ColumnMajorPadded
+                    : PixelUnshuffleChannelOrder::ChannelMajor;
+  }
+
+  // The column-major padded order is produced on the compute engine (tilize,
+  // tile transpose, untilize) instead of per-element gathers on the RISCs;
+  // the folded weight absorbs the order and the zero padding in its rows
+  // (K = R * 32 instead of alignTo(Cin * R^2, 32)). Geometry of that kernel:
+  // 2-byte elements, R | 32, Cin * R <= 32, W % 32 == 0.
+  // TTMLIR_OPT_DISABLE=stem_fpu_unshuffle keeps the channel-major order.
+  static bool useFpuOrder(const StemMatch &m, Type elemTy) {
+    static const bool disabled = [] {
+      const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+      return env && llvm::StringRef(env).contains("stem_fpu_unshuffle");
+    }();
+    if (disabled || !elemTy.isBF16()) {
+      return false;
+    }
+    return m.R > 0 && 32 % m.R == 0 && m.Cin * m.R <= 32 && m.W % 32 == 0;
+  }
 
   // Returns {W, b}.
   std::pair<Value, Value> build() {
@@ -528,7 +551,17 @@ public:
     Value G = concat(gBlocks, 0, {m.Cfeat, K}, "_stem_G");
     Value w1 = reshape(m.outConv.getWeight(), {m.Cout, m.Cfeat}, "_stem_w1");
     Value weq = matmul(w1, G, {m.Cout, K}, "_stem_weq");
-    if (Cp != K) {
+    if (fpuOrder) {
+      // Column-major padded order: fused input channel k = c*R^2 + dy*R + dx
+      // moves to row dx*32 + dy*Cin + c, the rest of each 32-row block is
+      // zero. W_padded = W_eq @ P with P [K, Cp] a 0/1 selection matrix.
+      Value P = selection({K, Cp}, "_stem_P", [&](ArrayRef<int64_t> id) {
+        const int64_t k = id[0], kp = id[1];
+        const int64_t c = k / RR, q = k % RR, dy = q / m.R, dx = q % m.R;
+        return kp == dx * 32 + dy * m.Cin + c;
+      });
+      weq = matmul(weq, P, {m.Cout, Cp}, "_stem_wperm");
+    } else if (Cp != K) {
       weq = rw.create<PadOp>(suffix("_stem_wpad"), tensorTy({m.Cout, Cp}), weq,
                              rw.getDenseI32ArrayAttr(
                                  {0, 0, 0, static_cast<int32_t>(Cp - K)}),
@@ -724,7 +757,9 @@ private:
   StemMatch m; // by value: op accessors are non-const
   Location loc;
   Type elemTy;
-  const int64_t RR, K, Cp;
+  const int64_t RR, K;
+  const bool fpuOrder;
+  const int64_t Cp;
 };
 
 //===----------------------------------------------------------------------===//
@@ -758,8 +793,7 @@ public:
                        puTy, m->x,
                        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(m->R)),
                        PixelUnshuffleChannelOrderAttr::get(
-                           rewriter.getContext(),
-                           PixelUnshuffleChannelOrder::ChannelMajor),
+                           rewriter.getContext(), weights.channelOrder()),
                        rewriter.getBoolAttr(true),
                        rewriter.getUI32IntegerAttr(static_cast<uint32_t>(Cp)))
                    .getResult();
