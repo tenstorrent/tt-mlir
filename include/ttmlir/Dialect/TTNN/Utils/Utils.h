@@ -5,6 +5,8 @@
 #ifndef TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 #define TTMLIR_DIALECT_TTNN_UTILS_UTILS_H
 
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "llvm/ADT/DenseSet.h"
 #include "mlir/IR/Value.h"
 
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -99,6 +101,15 @@ uint64_t getOpOutputL1Usage(TTNNLayoutAttr opLayout);
 // For L1 interleaved, returns total size / numCores since the grid attribute
 // is irrelevant for interleaved — data is distributed across all device cores.
 uint64_t getPerCoreL1Usage(TTNNLayoutAttr layout, uint64_t numCores);
+
+// Ops of `func` whose inputs derive (transitively) from a sampling op
+// (ttnn.grid_sample): a resampled feature map feeds everything after it, so
+// the precision-lowering passes treat these ops differently from the
+// image-space ops before the sampling. Walks the function in order (one
+// forward pass).
+llvm::DenseSet<mlir::Operation *>
+collectOpsDownstreamOfSampling(mlir::func::FuncOp func);
+
 
 // Helper method to get the tensor layout attribute from the tensor value.
 TTNNLayoutAttr getLayoutAttrFromTensor(RankedTensorType tensorType);

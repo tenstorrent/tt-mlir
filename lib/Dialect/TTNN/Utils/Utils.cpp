@@ -3,6 +3,7 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
+#include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
 
 #include "ttmlir/Asserts.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
@@ -224,6 +225,33 @@ uint64_t getPerCoreL1Usage(TTNNLayoutAttr layout, uint64_t numCores) {
   }
   // L1 interleaved: data is distributed across all device cores.
   return numCores > 0 ? totalSize / numCores : totalSize;
+}
+
+llvm::DenseSet<mlir::Operation *>
+collectOpsDownstreamOfSampling(mlir::func::FuncOp func) {
+  llvm::DenseSet<mlir::Operation *> downstream;
+  llvm::DenseSet<mlir::Value> sampled;
+  func.walk([&](mlir::Operation *op) {
+    bool hit = mlir::isa<GridSampleOp>(op);
+    if (!hit) {
+      for (mlir::Value operand : op->getOperands()) {
+        if (sampled.contains(operand)) {
+          hit = true;
+          break;
+        }
+      }
+    }
+    if (!hit) {
+      return;
+    }
+    if (!mlir::isa<GridSampleOp>(op)) {
+      downstream.insert(op);
+    }
+    for (mlir::Value result : op->getResults()) {
+      sampled.insert(result);
+    }
+  });
+  return downstream;
 }
 
 // Helper method to get the tensor layout attribute from the value.
