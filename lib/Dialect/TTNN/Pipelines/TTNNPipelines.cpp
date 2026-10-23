@@ -215,6 +215,10 @@ void createTTNNPipelineAnalysisPasses(
           // layouts are known and before the spill pass sizes the tensors
           // (kill switch TTMLIR_OPT_DISABLE=bfp8_intermediates).
           innerPm.addPass(mlir::tt::ttnn::createTTNNBlockFloatIntermediates());
+          // Reduced math fidelity on the ops whose inputs are now block-float
+          // (kill switch TTMLIR_OPT_DISABLE=lofi), before the spill pass so
+          // that its op-model queries see the final compute configs.
+          innerPm.addPass(mlir::tt::ttnn::createTTNNLowFidelityMatmulCompute());
           // 2x2 / stride-2 transposed convs as matmul + pixel_shuffle with
           // explicit layouts, before the spill pass so that the row-major
           // intermediates it creates are part of the L1 simulation (kill
@@ -572,9 +576,8 @@ void createTTIRToTTNNCommonPipeline(
     setConfigOptions.packerL1Acc = options.computeCfgPackerL1Acc.getValue();
     setConfigOptions.dstFullSyncEn = options.computeCfgDstFullSyncEn.getValue();
     devicePm.addPass(createTTNNSetComputeKernelConfig(setConfigOptions));
-    // Convolutions and matmuls at LoFi with bf16 accumulation (kill switch
-    // TTMLIR_OPT_DISABLE=lofi), after the pipeline defaults above.
-    devicePm.addPass(createTTNNLowFidelityMatmulCompute());
+    // The reduced-fidelity compute config pass runs inside the optimizer,
+    // after the block-float pass has chosen the data types it depends on.
 
     if (options.enableCreateD2MSubgraphs) {
       if (!options.optimizerPassEnabled) {

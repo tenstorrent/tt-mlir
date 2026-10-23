@@ -169,9 +169,24 @@ static uint64_t tensorBytes(Value v) {
          llvm::divideCeil(scalar.getIntOrFloatBitWidth(), 8);
 }
 
-static bool isProducerSeed(Operation *op) {
+// Ops downstream of a sampling op (ttnn.grid_sample) keep bf16 results
+// unless TTMLIR_BFP8_AFTER_SAMPLING=1: the resampled feature map feeds the
+// regression heads, whose outputs are the most sensitive to the 8-bit
+// mantissa, while the image-space backbone's lowering was validated at block
+// level.
+static bool bfp8AfterSampling() {
+  static const bool v = [] {
+    const char *env = std::getenv("TTMLIR_BFP8_AFTER_SAMPLING");
+    return env && llvm::StringRef(env) == "1";
+  }();
+  return v;
+}
+
+static bool isProducerSeed(Operation *op,
+                           const llvm::DenseSet<Operation *> &afterSampling) {
   return mlir::isa<Conv2dOp, ConvTranspose2dOp, MatmulOp, LinearOp>(op) &&
-         !isLargeSpatial(op) && !keepPrecise(op);
+         !isLargeSpatial(op) && !keepPrecise(op) &&
+         !afterSampling.contains(op);
 }
 
 // True when some use of `v`, followed through pass-through ops, leaves the
@@ -240,9 +255,13 @@ public:
       }
       // 1. Seeds: tiled bf16 results of convolutions and matmuls that never
       //    leave the tiled world and are large enough to be worth it.
+      llvm::DenseSet<Operation *> afterSampling;
+      if (!bfp8AfterSampling()) {
+        afterSampling = utils::collectOpsDownstreamOfSampling(func);
+      }
       uint64_t largest = 0;
       func.walk([&](Operation *op) {
-        if (isProducerSeed(op) && op->getNumResults() == 1 &&
+        if (isProducerSeed(op, afterSampling) && op->getNumResults() == 1 &&
             isTiledBf16(op->getResult(0))) {
           largest = std::max(largest, tensorBytes(op->getResult(0)));
         }
@@ -251,7 +270,7 @@ public:
           static_cast<uint64_t>(minFraction() * static_cast<double>(largest));
       llvm::SmallVector<Value> worklist;
       func.walk([&](Operation *op) {
-        if (!isProducerSeed(op) || op->getNumResults() != 1) {
+        if (!isProducerSeed(op, afterSampling) || op->getNumResults() != 1) {
           return;
         }
         Value r = op->getResult(0);

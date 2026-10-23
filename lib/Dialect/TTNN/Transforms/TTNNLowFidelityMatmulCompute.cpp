@@ -9,10 +9,14 @@
 // pass description in Passes.td.
 
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOpsTypes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOpsAttrs.h"
 #include "ttmlir/Dialect/TTNN/Transforms/Passes.h"
+#include "mlir/Dialect/Func/IR/FuncOps.h"
+#include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
 #include "llvm/ADT/SmallVector.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/StringRef.h"
 
 #include <cstdlib>
@@ -111,6 +115,57 @@ static bool isLargeSpatial(Operation *op) {
   }
   return pixels > largeSpatialPixels();
 }
+// Ops downstream of a sampling op (ttnn.grid_sample) keep the pipeline
+// fidelity: a resampled feature map feeds regression heads whose outputs lost
+// more correlation under HiFi2 than the image-space backbone did, while the
+// backbone's lowering was validated at block level.
+// TTMLIR_MATMUL_LOWER_AFTER_SAMPLING=1 lowers them too.
+static bool lowerAfterSampling() {
+  static const bool v = [] {
+    const char *env = std::getenv("TTMLIR_MATMUL_LOWER_AFTER_SAMPLING");
+    return env && llvm::StringRef(env) == "1";
+  }();
+  return v;
+}
+// HiFi2 keeps every mantissa bit of a block-float (bfp_bf8) operand, so on an
+// op whose activation and weight are both block-float it changes nothing but
+// the time; on a bf16 operand it drops the low mantissa bits. Only ops with
+// block-float inputs are lowered (a bias operand does not count).
+// TTMLIR_MATMUL_LOWER_BF16_INPUTS=1 lowers ops with bf16 inputs too.
+static bool lowerBf16Inputs() {
+  static const bool v = [] {
+    const char *env = std::getenv("TTMLIR_MATMUL_LOWER_BF16_INPUTS");
+    return env && llvm::StringRef(env) == "1";
+  }();
+  return v;
+}
+static bool isBlockFloat(Value v) {
+  auto rt = mlir::dyn_cast<RankedTensorType>(v.getType());
+  auto layout = rt ? mlir::dyn_cast_or_null<TTNNLayoutAttr>(rt.getEncoding())
+                   : TTNNLayoutAttr();
+  return layout && layout.getDataType() == ttcore::DataType::BFP_BFloat8;
+}
+// A convolution's weight operand is the raw weight at this stage; the dtype
+// it is prepared in is the conv config's `weights_dtype`.
+static bool weightIsBlockFloat(Operation *op) {
+  Conv2dConfigAttr cfg;
+  if (auto conv = mlir::dyn_cast<Conv2dOp>(op)) {
+    cfg = conv.getConv2dConfigAttr();
+  } else if (auto convT = mlir::dyn_cast<ConvTranspose2dOp>(op)) {
+    cfg = convT.getConv2dConfigAttr();
+  }
+  if (cfg && cfg.getWeightsDtype().has_value() &&
+      *cfg.getWeightsDtype() == ttcore::DataType::BFP_BFloat8) {
+    return true;
+  }
+  return isBlockFloat(op->getOperand(1));
+}
+static bool inputsAreBlockFloat(Operation *op) {
+  if (lowerBf16Inputs()) {
+    return true;
+  }
+  return isBlockFloat(op->getOperand(0)) && weightIsBlockFloat(op);
+}
 static bool fp32Acc() {
   static const bool v = [] {
     const char *env = std::getenv("TTMLIR_MATMUL_FP32_ACC");
@@ -143,15 +198,22 @@ public:
       cfg = cfg.withMathFidelity(fidelity()).withFp32DestAccEn(fp32Acc());
       cfgOp.setComputeConfigAttr(cfg);
     };
-    getOperation()->walk([&](Operation *op) {
-      // An op that carries `ttnn.keep_compute_config` chose its own
-      // compute config (e.g. a matmul built with bf16 accumulation for its
-      // sub-block width).
-      if (isa<Conv2dOp, ConvTranspose2dOp, MatmulOp, LinearOp>(op) &&
-          !keepPrecise(op) && !isLargeSpatial(op) &&
-          !op->hasAttr("ttnn.keep_compute_config")) {
-        lower(op);
+    getOperation()->walk([&](func::FuncOp func) {
+      llvm::DenseSet<Operation *> afterSampling;
+      if (!lowerAfterSampling()) {
+        afterSampling = utils::collectOpsDownstreamOfSampling(func);
       }
+      func.walk([&](Operation *op) {
+        // An op that carries `ttnn.keep_compute_config` chose its own
+        // compute config (e.g. a matmul built with bf16 accumulation for
+        // its sub-block width).
+        if (isa<Conv2dOp, ConvTranspose2dOp, MatmulOp, LinearOp>(op) &&
+            !keepPrecise(op) && !isLargeSpatial(op) &&
+            !afterSampling.contains(op) && inputsAreBlockFloat(op) &&
+            !op->hasAttr("ttnn.keep_compute_config")) {
+          lower(op);
+        }
+      });
     });
   }
 };
