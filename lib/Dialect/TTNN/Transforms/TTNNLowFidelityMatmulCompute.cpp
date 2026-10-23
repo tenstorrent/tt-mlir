@@ -144,8 +144,12 @@ public:
       cfgOp.setComputeConfigAttr(cfg);
     };
     getOperation()->walk([&](Operation *op) {
+      // An op that carries `ttnn.keep_compute_config` chose its own
+      // compute config (e.g. a matmul built with bf16 accumulation for its
+      // sub-block width).
       if (isa<Conv2dOp, ConvTranspose2dOp, MatmulOp, LinearOp>(op) &&
-          !keepPrecise(op) && !isLargeSpatial(op)) {
+          !keepPrecise(op) && !isLargeSpatial(op) &&
+          !op->hasAttr("ttnn.keep_compute_config")) {
         lower(op);
       }
     });

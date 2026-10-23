@@ -942,6 +942,46 @@ public:
 };
 } // namespace
 
+// PixelShuffle op conversion pattern
+//
+namespace {
+class PixelShuffleOpConversionPattern
+    : public TTNNToEmitPyBaseOpConversionPattern<
+          mlir::tt::ttnn::PixelShuffleOp> {
+public:
+  using TTNNToEmitPyBaseOpConversionPattern<
+      mlir::tt::ttnn::PixelShuffleOp>::TTNNToEmitPyBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PixelShuffleOp srcOp,
+                  mlir::tt::ttnn::PixelShuffleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitpy::EmitPyTTNNEmitter<mlir::tt::ttnn::PixelShuffleOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(static_cast<int64_t>(srcOp.getUpscaleFactor()),
+                     "upscale_factor"),
+        emitter.emit(srcOp.getMemoryConfigAttr(), "memory_config"),
+        emitter.emit(srcOp.getChannelOrder(), "channel_order"),
+    };
+    if (srcOp.getChannelsLast()) {
+      args.push_back(emitter.emit(true, "channels_last"));
+      if (srcOp.getPaddedChannels()) {
+        args.push_back(emitter.emit(
+            static_cast<int64_t>(*srcOp.getPaddedChannels()),
+            "padded_channels"));
+      }
+    }
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // CumSum op conversion pattern
 //
 namespace {
@@ -5653,7 +5693,8 @@ void populateTTNNToEmitPyPatterns(MLIRContext *ctx, RewritePatternSet &patterns,
                MaxPool2dWithIndicesOpConversionPattern,
                UpsampleOpConversionPattern,
                GridSampleOpConversionPattern,
-               PixelUnshuffleOpConversionPattern
+               PixelUnshuffleOpConversionPattern,
+               PixelShuffleOpConversionPattern
               >(typeConverter, ctx);
   // clang-format on
 

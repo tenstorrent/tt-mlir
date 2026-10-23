@@ -121,6 +121,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         OptimizerPasses/TTNNL1ProducerFirst.cpp
         OptimizerPasses/TTNNPixelUnshuffleL1Opt.cpp
         OptimizerPasses/TTNNStemFoldLinear.cpp
+        OptimizerPasses/TTNNConvTransposeToPixelShuffle.cpp
         OptimizerPasses/TTNNSpatialPackActivationRowMajorOpt.cpp
 
         ADDITIONAL_HEADER_DIRS

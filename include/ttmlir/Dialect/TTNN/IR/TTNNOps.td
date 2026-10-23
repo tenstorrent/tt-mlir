@@ -3560,6 +3560,39 @@ def TTNN_GridSampleOp : TTNN_Op<"grid_sample"> {
     let hasVerifier = 1;
 }
 
+def TTNN_PixelShuffleOp : TTNN_Op<"pixel_shuffle"> {
+    let summary = "Pixel shuffle (depth-to-space), the inverse of pixel_unshuffle.";
+    let description = [{
+      Rearranges elements from [N, C*r^2, H, W] to [N, C, H*r, W*r] where
+      r = upscale_factor (torch pixel_shuffle for channel_major; ONNX
+      DepthToSpace DCR for spatial_major). Calls ttnn::pixel_shuffle.
+      channel_order says which input channel holds each (channel, sub-pixel),
+      the packing pixel_unshuffle uses:
+        ChannelMajor: out[n, c, h*r+rh, w*r+rw] = in[n, c*r^2 + rh*r + rw, h, w]
+        SpatialMajor: out[n, c, h*r+rh, w*r+rw] = in[n, rh*(r*C) + rw*C + c, h, w]
+      channels_last = true selects the NHWC kernel: input [N, H, W, C*r^2]
+      ROW_MAJOR height-sharded in L1 (the row-major output of a 1x1 matmul),
+      result [N, H*r, W*r, Cp] ROW_MAJOR height-sharded in L1 (memory_config,
+      shard [pixels_per_core, Cp], Cp = padded_channels >= C, the extra
+      channels zero). Every core writes its own input shard's pixels into the
+      output shards with NoC writes; with the spatial-major order the r*C
+      elements of one kernel row are one write. Together with a 1x1 matmul
+      C_in -> C*r^2 it is a stride-r transposed conv with an r x r kernel:
+      W_1x1[(dy*r+dx)*C + co, ci] = W_t[ci, co, dy, dx].
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$upscale_factor,
+                         DefaultValuedAttr<TTNN_PixelUnshuffleChannelOrderAttr, "::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ChannelMajor">:$channel_order,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         DefaultValuedAttr<BoolAttr, "false">:$channels_last,
+                         OptionalAttr<UI32Attr>:$padded_channels);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 def TTNN_PixelUnshuffleOp : TTNN_Op<"pixel_unshuffle"> {
     let summary = "Pixel unshuffle (space-to-depth) with selectable channel ordering and memory config.";
 

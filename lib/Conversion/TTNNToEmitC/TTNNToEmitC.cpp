@@ -1323,6 +1323,58 @@ public:
 };
 } // namespace
 
+// PixelShuffle op conversion pattern
+//
+namespace {
+class PixelShuffleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PixelShuffleOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PixelShuffleOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PixelShuffleOp srcOp,
+                  mlir::tt::ttnn::PixelShuffleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PixelShuffleOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    mlir::RankedTensorType resultType =
+        mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+    auto resultLayoutAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    mlir::tt::ttnn::LayoutAttr outputLayoutAttr =
+        mlir::tt::ttnn::LayoutAttr::get(srcOp.getContext(),
+                                        resultLayoutAttr.isTiled()
+                                            ? mlir::tt::ttnn::Layout::Tile
+                                            : mlir::tt::ttnn::Layout::RowMajor);
+
+    // ::ttnn::pixel_shuffle(input, upscale_factor, memory_config,
+    //                       output_layout, channel_order, channels_last,
+    //                       padded_channels); the channels_last output is
+    //                       always ROW_MAJOR.
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(static_cast<uint32_t>(srcOp.getUpscaleFactor())),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        srcOp.getChannelsLast() ? emitter.emit(std::nullopt)
+                                : emitter.emit(outputLayoutAttr),
+        emitter.emit(srcOp.getChannelOrder()),
+        emitter.emit(srcOp.getChannelsLast()),
+        srcOp.getPaddedChannels()
+            ? emitter.emit(static_cast<uint32_t>(*srcOp.getPaddedChannels()))
+            : emitter.emit(std::nullopt),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // CumSum op conversion pattern
 //
 namespace {
@@ -6103,7 +6155,8 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
       SoftmaxOpConversionPattern, EmbeddingOpConversionPattern,
       DefaultOpConversionPattern<mlir::tt::ttnn::EmbeddingBackwardOp>,
       CumSumOpConversionPattern, CumProdOpConversionPattern,
-      PixelUnshuffleOpConversionPattern, BatchNormInferenceOpConversionPattern,
+      PixelUnshuffleOpConversionPattern, PixelShuffleOpConversionPattern,
+      BatchNormInferenceOpConversionPattern,
       AdamWOpConversionPattern, BatchNormTrainingOpConversionPattern,
       RMSNormOpConversionPattern, RMSNormPreAllGatherOpConversionPattern,
       DistributedRMSNormOpConversionPattern, LayerNormOpConversionPattern,

@@ -5175,6 +5175,52 @@ void mlir::tt::ttnn::PermuteOp::getCanonicalizationPatterns(
 // PixelUnshuffleOp
 //===----------------------------------------------------------------------===//
 
+::mlir::LogicalResult PixelShuffleOp::verify() {
+  ::mlir::RankedTensorType inType = getInput().getType();
+  ::mlir::RankedTensorType outType = getResult().getType();
+  if (inType.getRank() != 4 || outType.getRank() != 4) {
+    return emitOpError("input and output must be 4D");
+  }
+  uint32_t r = getUpscaleFactor();
+  if (r == 0) {
+    return emitOpError("upscale_factor must be positive");
+  }
+  auto inShape = inType.getShape();
+  auto outShape = outType.getShape();
+  const int64_t rr = static_cast<int64_t>(r) * r;
+  if (getChannelsLast()) {
+    // NHWC: [N, H, W, C*r^2] -> [N, H*r, W*r, Cp], Cp >= C.
+    if (inShape[3] % rr != 0) {
+      return emitOpError("channels_last input channels ")
+             << inShape[3] << " not divisible by r^2=" << rr;
+    }
+    const int64_t c = inShape[3] / rr;
+    const int64_t cp =
+        getPaddedChannels() ? static_cast<int64_t>(*getPaddedChannels()) : c;
+    if (cp < c) {
+      return emitOpError("padded_channels=") << cp << " < C=" << c;
+    }
+    if (outShape[0] != inShape[0] || outShape[1] != inShape[1] * r ||
+        outShape[2] != inShape[2] * r || outShape[3] != cp) {
+      return emitOpError("channels_last output must be [N, H*r, W*r, ")
+             << cp << "]";
+    }
+    return mlir::success();
+  }
+  if (getPaddedChannels()) {
+    return emitOpError("padded_channels requires channels_last = true");
+  }
+  if (inShape[1] % rr != 0) {
+    return emitOpError("input channels ")
+           << inShape[1] << " not divisible by r^2=" << rr;
+  }
+  if (outShape[0] != inShape[0] || outShape[1] != inShape[1] / rr ||
+      outShape[2] != inShape[2] * r || outShape[3] != inShape[3] * r) {
+    return emitOpError("output must be [N, C/r^2, H*r, W*r]");
+  }
+  return mlir::success();
+}
+
 ::mlir::LogicalResult PixelUnshuffleOp::verify() {
   ::mlir::RankedTensorType inType = getInput().getType();
   ::mlir::RankedTensorType outType = getResult().getType();

@@ -15,6 +15,7 @@
 #include "ttmlir/OpModel/TTNN/D2MOpCostModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOpModel.h"
 #include "ttmlir/OpModel/TTNN/TTNNOutputTensorInference.h"
+#include "ttmlir/Utils.h"
 
 #include "mlir/IR/Block.h"
 #include "mlir/IR/BuiltinAttributes.h"
@@ -5197,6 +5198,74 @@ TopKOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
       inputShape, inputs[0], getK(), getDim(), getLargest(), getSorted(),
       opConfig.outputLayout);
 }
+//===----------------------------------------------------------------------===//
+// PixelShuffleOp - TTNN Op Model Interface
+// NOTE: no constraint / runtime model: the op is only created after the layout
+// search, with explicit layouts, by the transposed-conv rewrite.
+//===----------------------------------------------------------------------===//
+
+// The op has no metal-side constraint query. Its L1 footprint is fully
+// determined by the IR: the output buffer is the height-sharded shard named by
+// the memory config, the input circular buffer aliases the input shard, and
+// the general (non fast-path) channels_last kernel adds two scratch circular
+// buffers of 8 output sticks each. Report that directly so the L1 spill
+// management pass can account for the op instead of treating it as
+// unanalysable (which flushes every live L1 tensor, including this op's own
+// input that must stay height-sharded in L1).
+llvm::Expected<op_model::OpConstraints>
+PixelShuffleOp::getOpConstraints(const std::vector<TTNNLayoutAttr> &inputs,
+                                 const OpConfig &opConfig) {
+  TTNNLayoutAttr outLayout = opConfig.outputLayout;
+  if (!outLayout) {
+    outLayout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(
+        mlir::cast<RankedTensorType>(getResult().getType()).getEncoding());
+  }
+  if (!outLayout) {
+    return issueErrorForGetOpConstraints(
+        getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+  }
+
+  const uint64_t numCores = ttmlir::utils::volume(outLayout.getGridShape());
+  const uint64_t outputBytes =
+      outLayout.hasL1BufferType()
+          ? (outLayout.getMemLayout() &&
+                     isShardedMemoryLayout(outLayout.getMemLayout().getValue())
+                 ? outLayout.getShardSizeInBytes()
+                 : (numCores ? outLayout.getShardSizeInBytes() / numCores
+                             : outLayout.getShardSizeInBytes()))
+          : 0;
+
+  uint64_t cbBytes = 0;
+  if (getChannelsLast()) {
+    auto inType = mlir::cast<RankedTensorType>(getInput().getType());
+    const uint32_t r = getUpscaleFactor();
+    const int64_t cIn = inType.getShape().back();
+    const int64_t c = cIn / static_cast<int64_t>(r * r);
+    const int64_t cp = getPaddedChannels() ? *getPaddedChannels() : c;
+    const bool fast =
+        getChannelOrder() == PixelUnshuffleChannelOrder::SpatialMajor && cp == c;
+    if (!fast) {
+      const uint64_t datum =
+          mlir::cast<RankedTensorType>(getResult().getType())
+              .getElementType()
+              .getIntOrFloatBitWidth() /
+          8;
+      cbBytes = 2 * 8 * static_cast<uint64_t>(cp) * datum;
+    }
+  }
+
+  return op_model::OpConstraints(cbBytes, outputBytes, cbBytes + outputBytes,
+                                 outputBytes,
+                                 llvm::SmallVector<TTNNLayoutAttr>{outLayout});
+}
+
+llvm::Expected<size_t>
+PixelShuffleOp::getOpRuntime(const std::vector<TTNNLayoutAttr> &inputs,
+                             const OpConfig &opConfig) {
+  return issueErrorForGetOpRuntime(
+      getOperation(), detail::ReasonForLackOfSupport::NoNeedForConstraintAPI);
+}
+
 //===----------------------------------------------------------------------===//
 // PixelUnshuffleOp - TTNN Op Model Interface
 // NOTE: Constraint/runtime model not implemented — TTNNPixelUnshuffleL1Opt

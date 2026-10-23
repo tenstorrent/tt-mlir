@@ -215,6 +215,12 @@ void createTTNNPipelineAnalysisPasses(
           // layouts are known and before the spill pass sizes the tensors
           // (kill switch TTMLIR_OPT_DISABLE=bfp8_intermediates).
           innerPm.addPass(mlir::tt::ttnn::createTTNNBlockFloatIntermediates());
+          // 2x2 / stride-2 transposed convs as matmul + pixel_shuffle with
+          // explicit layouts, before the spill pass so that the row-major
+          // intermediates it creates are part of the L1 simulation (kill
+          // switch TTMLIR_OPT_DISABLE=convt_pixel_shuffle).
+          innerPm.addPass(
+              mlir::tt::ttnn::createTTNNConvTransposeToPixelShuffle());
           if (memLayoutEnabled) {
             // Order sibling producers so the L1-fed one runs first; the
             // spill pass then sees its input freed before the DRAM-fed op.

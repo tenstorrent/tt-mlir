@@ -2018,6 +2018,28 @@ createOp(FlatbufferObjectCache &cache, GridSampleOp op) {
                                                 usePrecomputedGrid);
 }
 
+::flatbuffers::Offset<::tt::target::ttnn::PixelShuffleOp>
+createOp(FlatbufferObjectCache &cache, PixelShuffleOp op) {
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> in =
+      cache.at<::tt::target::ttnn::TensorRef>(
+          getOperandThroughDPSOps(op.getInput()));
+  uint32_t upscaleFactor = op.getUpscaleFactor();
+  // channel_order is serialised as a uint32 like pixel_unshuffle's.
+  uint32_t channelOrder = static_cast<uint32_t>(op.getChannelOrder());
+  flatbuffers::Offset<::tt::target::ttnn::MemoryConfig> memoryConfig =
+      op.getMemoryConfig() ? toFlatbuffer(cache, op.getMemoryConfig().value())
+                           : 0;
+  flatbuffers::Offset<::tt::target::ttnn::TensorRef> out =
+      cache.getOrCreateNoSharding(op.getResult(), tensorValueToFlatbuffer,
+                                  /*local_shape*/ std::nullopt);
+  bool channelsLast = op.getChannelsLast();
+  uint32_t paddedChannels =
+      op.getPaddedChannels() ? *op.getPaddedChannels() : 0;
+  return ::tt::target::ttnn::CreatePixelShuffleOp(
+      *cache.fbb, in, upscaleFactor, channelOrder, memoryConfig, out,
+      channelsLast, paddedChannels);
+}
+
 ::flatbuffers::Offset<::tt::target::ttnn::PixelUnshuffleOp>
 createOp(FlatbufferObjectCache &cache, PixelUnshuffleOp op) {
   flatbuffers::Offset<::tt::target::ttnn::TensorRef> in =
@@ -4972,6 +4994,10 @@ emitTTNNOperation(FlatbufferObjectCache &cache, Operation *op,
   if (auto pixelUnshuffleOp = dyn_cast<PixelUnshuffleOp>(op);
       pixelUnshuffleOp) {
     return createOperation(cache, createOp(cache, pixelUnshuffleOp),
+                           debugString, locInfo);
+  }
+  if (auto pixelShuffleOp = dyn_cast<PixelShuffleOp>(op); pixelShuffleOp) {
+    return createOperation(cache, createOp(cache, pixelShuffleOp),
                            debugString, locInfo);
   }
   if (auto batchNormOp = dyn_cast<BatchNormInferenceOp>(op); batchNormOp) {
