@@ -37,6 +37,20 @@ static bool haloReallocDisabled() {
   return disabled;
 }
 
+// Input pixel count up to which a conv keeps its halo output where the halo
+// wrote it (no reallocate). Default 100,000: the same bound the precision
+// passes use for the highest-resolution stage, whose activations stay bf16
+// and whose 553 KB halo'd input does not find contiguous L1 without the
+// compaction move (largest free block 441 KB when it was tried).
+static int64_t noHaloReallocMaxPixels() {
+  static const int64_t v = [] {
+    const char *env = std::getenv("TTMLIR_NO_HALO_REALLOC_MAX_PIXELS");
+    return env ? static_cast<int64_t>(std::strtoll(env, nullptr, 10))
+               : static_cast<int64_t>(100000);
+  }();
+  return v;
+}
+
 // Kill switch (comma list in TTMLIR_OPT_DISABLE) for the taller activation
 // blocks of large-spatial convs.
 static bool largeSpatialActBlockDisabled() {
@@ -356,14 +370,15 @@ void LegalOpConfigAnalysis::fillOpSpecificAttrs() {
         Conv2dConfigSearchSpace effectiveSearchSpace = searchSpace;
         int64_t spatialSize =
             (int64_t)convOp.getInputHeight() * convOp.getInputWidth();
-        // Small stages consume the halo output in place: the compaction copy
+        // Convs consume the halo output in place: the compaction copy
         // tt-metal makes by default (a Move op per conv that re-allocates
-        // the halo'd input) only pays off when L1 is fragmented, which the
-        // large bf16 stages still are (the stem conv's 553 KB halo'd input
-        // failed to allocate without it). TTMLIR_OPT_DISABLE=halo_realloc
-        // restores the tt-metal default everywhere.
-        constexpr int64_t kNoHaloReallocMaxPixels = 4096;
-        if (!haloReallocDisabled() && spatialSize <= kNoHaloReallocMaxPixels) {
+        // the halo'd input) only pays off when L1 is fragmented, which is
+        // the case on the highest-resolution bf16 stage only; the stages
+        // below it write block-float activations and keep the halo output
+        // where it is. TTMLIR_OPT_DISABLE=halo_realloc restores the
+        // tt-metal default everywhere, TTMLIR_NO_HALO_REALLOC_MAX_PIXELS=<n>
+        // changes the limit.
+        if (!haloReallocDisabled() && spatialSize <= noHaloReallocMaxPixels()) {
           effectiveSearchSpace.reallocateHaloOutput = {false};
         }
         if (spatialSize > 100000) {
