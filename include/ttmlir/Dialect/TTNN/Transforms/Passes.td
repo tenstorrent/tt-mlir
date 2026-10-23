@@ -1104,6 +1104,31 @@ def TTNNGridSampleLayoutOptimizer : Pass<"ttnn-grid-sample-layout-opt", "::mlir:
 }
 
 
+def TTNNConvTransposeToPixelShuffle : Pass<"ttnn-conv-transpose-to-pixel-shuffle", "::mlir::ModuleOp"> {
+  let summary = "Run a 2x2 / stride-2 transposed convolution as a 1x1 matmul plus pixel shuffle.";
+  let description = [{
+    A 2x2 / stride-2 transposed convolution without padding never overlaps
+    its output pixels, so it equals a 1x1 matmul C_in -> 4*C_out (output
+    channel (dy*2+dx)*C_out + co holds the tap (dy, dx)) followed by a pixel
+    shuffle (depth-to-space, spatial-major channel order) that moves channel
+    block (dy, dx) of pixel (h, w) to pixel (2h+dy, 2w+dx). tt-metal runs the
+    transposed conv as a dense 2x2 conv over the zero-inserted input (four
+    times the useful FLOPs plus a halo over a 2x larger image); the matmul
+    multiplies no zero and the shuffle is pure data movement.
+
+    Runs after the layout search and the stem placement, with explicit
+    layouts: the input is height-sharded on whole tile rows, the 1-D
+    multicast matmul writes row-major onto the same shards (untilize_out),
+    ttnn.pixel_shuffle (channels_last) writes the row-major height-sharded
+    result, and a layout change back to the search's result layout follows
+    (in place when that layout is height-sharded on tile-aligned shards).
+    The weight rearrangement W1[ci, (dy*2+dx)*C_out + co] = Wt[ci, co, dy, dx]
+    is a permute and a reshape on the host weight, hoisted by const-eval.
+    TTMLIR_OPT_DISABLE=convt_pixel_shuffle keeps the transposed conv.
+  }];
+  let dependentDialects = ["mlir::tt::ttnn::TTNNDialect", "mlir::func::FuncDialect"];
+}
+
 def TTNNStemFoldLinear : Pass<"ttnn-stem-fold-linear", "::mlir::ModuleOp"> {
   let summary = "Place the folded stem: pixel_unshuffle(channels_last) height-sharded in L1, in-place tilize, the 1x1 conv as ttnn.linear.";
   let description = [{

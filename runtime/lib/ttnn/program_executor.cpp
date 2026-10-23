@@ -53,6 +53,7 @@
 #include "operations/data_movement/pad.h"
 #include "operations/data_movement/permute.h"
 #include "operations/data_movement/pixel_unshuffle.h"
+#include "operations/data_movement/pixel_shuffle.h"
 #include "operations/data_movement/repeat.h"
 #include "operations/data_movement/repeat_interleave.h"
 #include "operations/data_movement/reshape.h"
@@ -673,6 +674,10 @@ void ProgramExecutor::runOperation(const ::tt::target::ttnn::Operation *op) {
   }
   case ::tt::target::ttnn::OpType::PixelUnshuffleOp: {
     return operations::data_movement::run(op->type_as_PixelUnshuffleOp(),
+                                          getContext());
+  }
+  case ::tt::target::ttnn::OpType::PixelShuffleOp: {
+    return operations::data_movement::run(op->type_as_PixelShuffleOp(),
                                           getContext());
   }
   case ::tt::target::ttnn::OpType::CpuOp: {

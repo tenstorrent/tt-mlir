@@ -1463,6 +1463,10 @@ std::vector<tt::runtime::TensorRef> getOpOutputRefs(OpContext opContextHandle) {
     tensorRefs = {opContext.type_as_PixelUnshuffleOp()->out()};
     break;
   }
+  case ::tt::target::ttnn::OpType::PixelShuffleOp: {
+    tensorRefs = {opContext.type_as_PixelShuffleOp()->out()};
+    break;
+  }
   case ::tt::target::ttnn::OpType::ConstantOp: {
     tensorRefs = {opContext.type_as_ConstantOp()->out()};
     break;
@@ -2169,6 +2173,10 @@ std::vector<tt::runtime::TensorRef> getOpInputRefs(OpContext opContextHandle) {
   }
   case ::tt::target::ttnn::OpType::PixelUnshuffleOp: {
     tensorRefs = {opContext.type_as_PixelUnshuffleOp()->in()};
+    break;
+  }
+  case ::tt::target::ttnn::OpType::PixelShuffleOp: {
+    tensorRefs = {opContext.type_as_PixelShuffleOp()->in()};
     break;
   }
   case ::tt::target::ttnn::OpType::CpuOp: {
