@@ -40,6 +40,8 @@
 
 #include "mlir/Dialect/Func/IR/FuncOps.h"
 #include "mlir/IR/Builders.h"
+#include "llvm/ADT/DenseMap.h"
+#include "llvm/ADT/DenseSet.h"
 #include "llvm/ADT/SmallVector.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/MathExtras.h"
@@ -135,6 +137,208 @@ static std::optional<Match> matchOp(ConvTranspose2dOp op) {
     return std::nullopt;
   }
   return m;
+}
+
+// Kill switch for moving the stage's tail onto the matmul grid
+// (TTMLIR_OPT_DISABLE=convt_tail_grid).
+static bool tailOnMatmulGridDisabled() {
+  static const bool disabled = [] {
+    const char *env = std::getenv("TTMLIR_OPT_DISABLE");
+    return env && llvm::StringRef(env).contains("convt_tail_grid");
+  }();
+  return disabled;
+}
+
+static TTNNLayoutAttr layoutOfValue(Value v) {
+  auto rt = mlir::dyn_cast<RankedTensorType>(v.getType());
+  return rt ? mlir::dyn_cast_or_null<TTNNLayoutAttr>(rt.getEncoding())
+            : TTNNLayoutAttr();
+}
+
+// The same layout on the matmul grid: same memory layout, element type and
+// rank, the rows spread over `toCores` cores (whole tile rows when tiled).
+// Returns null when the rows do not spread evenly in whole tiles.
+static TTNNLayoutAttr onGrid(TTNNLayoutAttr from, RankedTensorType type,
+                             TTNNLayoutAttr gridTemplate, int64_t toCores,
+                             MLIRContext *ctx) {
+  llvm::ArrayRef<int64_t> shape = type.getShape();
+  const int64_t rows = shape[shape.size() - 2];
+  const int64_t cols = shape.back();
+  int64_t rowsPerCore = llvm::divideCeil(rows, toCores);
+  if (from.isTiled()) {
+    rowsPerCore = llvm::alignTo(rowsPerCore, 32);
+  }
+  if (rowsPerCore * (toCores - 1) >= rows) {
+    return TTNNLayoutAttr(); // the grid would have empty cores
+  }
+  TTNNLayoutAttr derived =
+      TTNNLayoutAttr::Builder(gridTemplate, shape)
+          .setBufferType(BufferType::L1)
+          .setMemoryLayout(TensorMemoryLayout::HeightSharded)
+          .setElementType(from.getElementType())
+          .setGridShape({toCores, 1})
+          .setCoreRangeSet(gridTemplate.getCoreRangeSet())
+          .build();
+  llvm::SmallVector<int64_t> shardShape{rowsPerCore, cols};
+  MemRefType memref = ttcore::buildMemRef<BufferType, BufferTypeAttr>(
+      ctx, shardShape, from.getElementType(), BufferType::L1);
+  return TTNNLayoutAttr::get(ctx, derived.getLinear(), derived.getGridShape(),
+                             memref, derived.getMemLayout(),
+                             derived.getTensorMesh(),
+                             derived.getIgnorePhysicalLayout(),
+                             derived.getCoreRangeSet());
+}
+
+static bool sameCores(TTNNLayoutAttr a, TTNNLayoutAttr b) {
+  return a && b && a.hasShardedL1TensorMemoryLayout() &&
+         b.hasShardedL1TensorMemoryLayout() &&
+         a.getMemLayout() == b.getMemLayout() &&
+         a.getCoreRangeSet() == b.getCoreRangeSet() &&
+         a.getGridShape() == b.getGridShape();
+}
+
+// Move the ops that consume the transposed conv's result on the search's
+// grid (`fromLayout`: height-sharded, 63 cores say) onto the matmul grid
+// (`toLayout`: height-sharded, 60 cores): every op reachable from the result
+// whose result layout lives on the search's core set gets the equivalent
+// layout on the matmul's core set; an operand of such an op that comes from
+// outside on the search's grid (the skip-path tensor) is resharded once; a
+// 3x3 conv whose activation-block override no longer divides the new shard
+// (it silently fell back to one tile before) is pinned to one tile. The
+// consumers' configs are re-validated by the spill pass that follows.
+// Returns false (and changes nothing) when a layout cannot be moved.
+static bool retargetTail(ConvTranspose2dOp op, TTNNLayoutAttr fromLayout,
+                         TTNNLayoutAttr toLayout) {
+  MLIRContext *ctx = op.getContext();
+  const int64_t toCores = toLayout.getGridShape()[0];
+  // Forward closure over ops producing results on the search's core set.
+  llvm::SmallVector<Operation *> order;
+  llvm::DenseSet<Operation *> inClosure;
+  llvm::SmallVector<Value> frontier{op.getResult()};
+  while (!frontier.empty()) {
+    Value v = frontier.pop_back_val();
+    for (Operation *user : v.getUsers()) {
+      if (inClosure.contains(user) || user->getNumResults() != 1) {
+        continue;
+      }
+      TTNNLayoutAttr l = layoutOfValue(user->getResult(0));
+      if (!sameCores(l, fromLayout)) {
+        continue;
+      }
+      if (!mlir::isa<AddOp, MultiplyOp, SubtractOp, Conv2dOp, MaxPool2dOp,
+                     ToLayoutOp, TypecastOp, ReluOp, Relu6Op>(user)) {
+        return false;
+      }
+      inClosure.insert(user);
+      order.push_back(user);
+      frontier.push_back(user->getResult(0));
+    }
+  }
+  if (order.empty()) {
+    return false;
+  }
+  // New result types, computed first so nothing is changed on failure.
+  llvm::DenseMap<Operation *, RankedTensorType> newTypes;
+  for (Operation *o : order) {
+    auto rt = mlir::cast<RankedTensorType>(o->getResult(0).getType());
+    TTNNLayoutAttr nl = onGrid(layoutOfValue(o->getResult(0)), rt, toLayout,
+                               toCores, ctx);
+    if (!nl) {
+      return false;
+    }
+    newTypes[o] = RankedTensorType::get(rt.getShape(), rt.getElementType(), nl);
+  }
+  // Every user of a closure result must itself be in the closure or accept
+  // the new layout through a reshard; ops that take any layout (the spill
+  // pass re-validates them) are fine, but a return is not.
+  for (Operation *o : order) {
+    for (Operation *user : o->getResult(0).getUsers()) {
+      if (mlir::isa<func::ReturnOp>(user)) {
+        return false;
+      }
+    }
+  }
+  // Apply.
+  for (Operation *o : order) {
+    o->getResult(0).setType(newTypes[o]);
+    if (auto conv = mlir::dyn_cast<Conv2dOp>(o)) {
+      auto cfg = conv.getConv2dConfigAttr();
+      if (cfg && cfg.getActBlockHOverride() && *cfg.getActBlockHOverride() > 0) {
+        const int64_t rows =
+            newTypes[o].getShape()[newTypes[o].getShape().size() - 2];
+        const int64_t perCoreTiles =
+            llvm::divideCeil(llvm::divideCeil(rows, toCores), 32);
+        const int64_t overrideTiles = *cfg.getActBlockHOverride() / 32;
+        llvm::SmallVector<int64_t> oldShard = fromLayout.getScalarShardShape();
+        const int64_t oldTiles = oldShard.empty() ? 0 : oldShard[0] / 32;
+        // Fell back to one tile on the old grid: keep one tile, and a
+        // single-buffered activation block. The matmul grid holds a few
+        // more rows per core than the search's grid (768 against 736 here),
+        // and with the halo'd input, the resident output and the weight
+        // circular buffer of a 3x3 conv there is no room left for the second
+        // activation buffer (the conv's circular buffers met the halo'd
+        // input at run time when it was kept).
+        if (oldTiles > 0 && oldTiles % overrideTiles != 0 &&
+            perCoreTiles % overrideTiles == 0) {
+          conv.setConv2dConfigAttr(
+              cfg.withActBlockHOverride(32).withEnableActDoubleBuffer(false));
+        }
+      }
+    }
+  }
+  // Operands from outside the closure that sit on the search's grid.
+  for (Operation *o : order) {
+    OpBuilder b(o);
+    for (OpOperand &operand : o->getOpOperands()) {
+      Value v = operand.get();
+      Operation *def = v.getDefiningOp();
+      if (def && (inClosure.contains(def) || def == op.getOperation())) {
+        continue;
+      }
+      TTNNLayoutAttr l = layoutOfValue(v);
+      if (!sameCores(l, fromLayout)) {
+        continue;
+      }
+      auto rt = mlir::cast<RankedTensorType>(v.getType());
+      TTNNLayoutAttr nl = onGrid(l, rt, toLayout, toCores, ctx);
+      if (!nl) {
+        continue; // the consumer takes the old layout; re-validated later
+      }
+      auto nt = RankedTensorType::get(rt.getShape(), rt.getElementType(), nl);
+      // A single-use 1x1 conv producing the operand (the skip-path conv)
+      // moves onto the grid itself and its (smaller) input is resharded.
+      if (auto conv = mlir::dyn_cast_or_null<Conv2dOp>(def);
+          conv && conv.getResult().hasOneUse()) {
+        Value in = conv.getInput();
+        TTNNLayoutAttr il = layoutOfValue(in);
+        auto irt = mlir::cast<RankedTensorType>(in.getType());
+        TTNNLayoutAttr inl =
+            sameCores(il, fromLayout) ? onGrid(il, irt, toLayout, toCores, ctx)
+                                      : TTNNLayoutAttr();
+        if (inl) {
+          // The conv runs right before its consumer, after the matmul and
+          // the shuffle (the order the hand-written test used): its output
+          // and the chain's tiled result are then the only two resident
+          // tensors when the consumer runs, and the 3x3 conv that follows
+          // finds contiguous L1 for its halo'd input. With the conv ahead of
+          // the chain, the chain's intermediates left the consumer's output
+          // in the middle of L1 and the halo'd input landed under the conv's
+          // circular buffers.
+          conv->moveBefore(o);
+          OpBuilder cb(conv);
+          auto int_ = RankedTensorType::get(irt.getShape(), irt.getElementType(), inl);
+          Value movedIn =
+              cb.create<ToMemoryConfigOp>(conv.getLoc(), int_, in).getResult();
+          conv.getInputMutable().assign(movedIn);
+          conv.getResult().setType(nt);
+          continue;
+        }
+      }
+      Value moved = b.create<ToMemoryConfigOp>(o->getLoc(), nt, v).getResult();
+      operand.set(moved);
+    }
+  }
+  return true;
 }
 
 class TTNNConvTransposeToPixelShuffle
@@ -233,7 +437,13 @@ public:
       int64_t outRowsPerCore = 4 * rowsPerCore;
       int64_t outCores = numCores;
       const int64_t outBytes = outPixels * m.cout * 2;
-      if (outBytes > kLargeOutputBytes &&
+      // When the output pixels fill the matmul grid exactly, the stage's
+      // tail (residual add, skip-path 1x1 conv, 3x3 conv, pool, scaled
+      // residual) is moved onto that grid below instead of resharding the
+      // result to the search's grid; the shuffle then writes core-locally
+      // and nothing is resharded.
+      const bool exactFit = numCores * outRowsPerCore == outPixels;
+      if (!exactFit && outBytes > kLargeOutputBytes &&
           outLayout.hasShardedL1TensorMemoryLayout() &&
           outLayout.getMemLayout().getValue() ==
               TensorMemoryLayout::HeightSharded) {
@@ -392,9 +602,27 @@ public:
                                            static_cast<int32_t>(m.cout)}))
                        .getResult();
 
-      // 7. Back to the layout the search gave the transposed conv's result.
+      // 7. Tiled result on the matmul grid; the tail follows it when the
+      //    pixels fill that grid exactly, otherwise back to the search's
+      //    layout.
       Value result = flat;
-      if (flatLayout != outLayout) {
+      bool tailMoved = false;
+      if (exactFit && flatLayout != outLayout &&
+          outLayout.hasShardedL1TensorMemoryLayout() &&
+          outLayout.getMemLayout().getValue() ==
+              TensorMemoryLayout::HeightSharded &&
+          !tailOnMatmulGridDisabled()) {
+        TTNNLayoutAttr tiledLayout =
+            hsLayout(flatShape, outCores, outRowsPerCore, Layout::Tile,
+                     outLayout.getDataType());
+        RankedTensorType tiledTy =
+            RankedTensorType::get(flatShape, scalarTy, tiledLayout);
+        tailMoved = retargetTail(op, outLayout, tiledLayout);
+        if (tailMoved) {
+          result = b.create<ToTensorSpecOp>(loc, tiledTy, flat).getResult();
+        }
+      }
+      if (!tailMoved && flatLayout != outLayout) {
         result = b.create<ToTensorSpecOp>(loc, outTy, flat).getResult();
       }
 
@@ -403,7 +631,8 @@ public:
                      << "->" << m.cout << ": matmul on " << numCores
                      << " cores x " << rowsPerCore << " rows, shuffle on "
                      << outCores << " cores x " << outRowsPerCore
-                     << " rows, result layout " << outLayout << "\n";
+                     << " rows, tail " << (tailMoved ? "on the matmul grid" : "on the search grid")
+                     << ", result layout " << outLayout << "\n";
       }
 
       op.getResult().replaceAllUsesWith(result);
