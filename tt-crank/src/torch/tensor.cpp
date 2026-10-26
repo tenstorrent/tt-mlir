@@ -233,7 +233,19 @@ bool is_tt(const at::Tensor &t) {
 
 at::Tensor to_tt(const at::Tensor &t, at::Device device) {
     TORCH_CHECK(is_tt(device), "tt-crank to_tt: target device must be tt, got ", device);
-    return t.device() == device ? t : t.to(device);
+    if (t.device() == device) {
+        return t;
+    }
+    at::Tensor moved = t.to(device);
+    // `x * 0.5` reaches the binary kernels with 0.5 as a wrapped number: a 0-d
+    // f64 CPU tensor flagged so `at::result_type` lets the real tensor's dtype
+    // win. `.to()` drops the flag, and the promotion then only still comes out
+    // right when x has dimensions (a dimensioned bf16 beats a 0-d f64). A 0-d
+    // x would promote to f64, so carry the flag over.
+    if (t.unsafeGetTensorImpl()->is_wrapped_number()) {
+        moved.unsafeGetTensorImpl()->set_wrapped_number(true);
+    }
+    return moved;
 }
 
 // ===== Distributed primitives =====
