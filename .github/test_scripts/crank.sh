@@ -11,8 +11,7 @@
 # Needs a tracy build with TTMLIR_ENABLE_CRANK=ON. The build-dir artifact carries
 # build/tt-crank (test binary, libs, python extension) and build/ttsim_home (the
 # simulator staging dir baked into libtt_crank.so). Benchmarks are excluded by
-# tt-crank/pytest.ini (norecursedirs). $REQUIREMENTS, if set, is pip-installed
-# first (same as pytest.sh).
+# tt-crank/pytest.ini (norecursedirs).
 
 set -e -o pipefail
 
@@ -22,9 +21,7 @@ case "${1:-}" in
     *)      echo "usage: crank.sh sim|device" >&2; exit 1 ;;
 esac
 
-if [ -n "$REQUIREMENTS" ]; then
-    eval "pip install $REQUIREMENTS"
-fi
+pip install -r "$WORK_DIR/tt-crank/requirements.txt"
 
 CRANK_PY="$WORK_DIR/tt-crank/python"
 TT_METAL_LINK="$WORK_DIR/third_party/tt-metal/src/tt-metal"

@@ -1,0 +1,7 @@
+InheritParentConfig: true
+Checks: >
+  -cppcoreguidelines-pro-bounds-pointer-arithmetic,
+  -readability-avoid-return-with-void-value
+CheckOptions:
+  readability-identifier-naming.FunctionIgnoredRegexp: '^[A-Z][a-zA-Z0-9]*$'
+  readability-identifier-naming.MethodIgnoredRegexp: '^[A-Z][a-zA-Z0-9]*$'
