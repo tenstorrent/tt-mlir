@@ -56,7 +56,7 @@ struct TensorPin {
 // runtime tensor underneath is the full tensor distributed across the mesh.
 class TensorStorage {
 public:
-    explicit TensorStorage(::tt::runtime::Tensor tensor);
+    explicit TensorStorage(::tt::runtime::Tensor tensor, std::optional<TensorPin> pin = std::nullopt);
 
     const ::tt::runtime::Tensor &tensor() const { return tensor_; }
     ::tt::runtime::Tensor &tensor() { return tensor_; }
@@ -84,8 +84,9 @@ TensorStorage &storage_of(const at::Tensor &t);
 // labeled with `sizes` / `dtype`. The caller decides the user-facing dtype —
 // useful when the runtime descriptor reports a post-demotion physical type
 // (f32) but the user expects the pre-demotion logical type (f64). `sizes` is
-// the per-chip shape.
-at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype);
+// the per-chip shape. `pin` keeps borrowed CPU storage alive and tracks mutations.
+at::Tensor wrap_tt_tensor(::tt::runtime::Tensor runtime_tensor, at::IntArrayRef sizes, c10::ScalarType dtype,
+                          std::optional<TensorPin> pin = std::nullopt);
 
 // Move a freshly-computed result tensor's runtime buffer into a caller-provided
 // tensor (`.out` kernels, in-place ops, optimizer updates). Asserts `out` already has
