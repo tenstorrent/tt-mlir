@@ -70,29 +70,66 @@ def get_inplace_vals(op) -> list[Value]:
     return [operands[i] for i in indices if is_tensor_value(operands[i])]
 
 
-def _while_region_program_name(
-    function_name: str, loop_index: int, region_name: str
+def _region_program_name(
+    function_name: str, kind: str, op_index: int, region_suffix: str
 ) -> str:
-    """Name of the flatbuffer program a `ttnn.while` region is serialized into.
+    """Name of the flatbuffer program a control flow region is serialized into.
 
-    Mirrors `createOp(FlatbufferObjectCache &, WhileOp, ...)` in
-    lib/Target/TTNN/TTNNToFlatbuffer.cpp, which numbers loops by their
-    pre-order position within the enclosing function.
+    Mirrors `createOp(FlatbufferObjectCache &, WhileOp|CaseOp, ...)` in
+    lib/Target/TTNN/TTNNToFlatbuffer.cpp, which numbers each op by its pre-order
+    position among the ops of that kind within the enclosing function.
     """
-    return f"{function_name}_while_{loop_index}_{region_name}"
+    return f"{function_name}_{kind}_{op_index}_{region_suffix}"
 
 
-def _collect_while_ops(func_op: func.FuncOp) -> list[Operation]:
-    """The function's `ttnn.while` ops, in the order the serializer numbers them."""
-    while_ops: list[Operation] = []
+def _while_region_suffixes(while_op: Operation) -> list[str]:
+    """Per-region name suffixes for a `ttnn.while`.
+
+    `cond` and `body` are fixed regions, so REGION_NAMES lines up one to one.
+    `strict` is deliberate: REGION_NAMES holds one entry per *declared* region,
+    which for a variadic region is a single name covering all of them, so a
+    plain zip would silently drop regions.
+    """
+    return [
+        name
+        for _, name in zip(while_op.regions, ttnn.WhileOp.REGION_NAMES, strict=True)
+    ]
+
+
+def _case_region_suffixes(case_op: Operation) -> list[str]:
+    """Per-region name suffixes for a `ttnn.case`.
+
+    `branches` is a variadic region, so REGION_NAMES is the single name
+    `("branches",)` however many branches there are, and the suffixes have to
+    come from the region count instead.
+    """
+    return [f"branch_{index}" for index in range(len(case_op.regions))]
+
+
+# Ops whose regions become flatbuffer programs of their own, mapped to the kind
+# token used in the program name and to the per-region suffixes.
+_REGION_PROGRAM_OPS = {
+    ttnn.WhileOp.OPERATION_NAME: ("while", _while_region_suffixes),
+    ttnn.CaseOp.OPERATION_NAME: ("case", _case_region_suffixes),
+}
+
+
+def _collect_region_ops(func_op: func.FuncOp) -> dict[str, list[Operation]]:
+    """The function's region-program ops, per kind, in serializer order.
+
+    Numbering is per op kind because the serializer walks each kind on its own,
+    so a function with one while and one case has `..._while_0_*` and
+    `..._case_0_*`.
+    """
+    collected: dict[str, list[Operation]] = {name: [] for name in _REGION_PROGRAM_OPS}
 
     def _visitor(op: Operation) -> WalkResult:
-        if op.name == ttnn.WhileOp.OPERATION_NAME:
-            while_ops.append(op)
+        if op.name in collected:
+            collected[op.name].append(op)
         return WalkResult.ADVANCE
 
     func_op.operation.walk(_visitor, walk_order=WalkOrder.PRE_ORDER)
-    return while_ops
+    return collected
 
 
 def _split_terminator(block: Block) -> tuple[list[Operation], list[Value]]:
@@ -180,7 +217,7 @@ class IRModule:
         """Map every flatbuffer program name to the block it is serialized from.
 
         A `func.func` becomes a program under its own symbol name. Each region
-        of a `ttnn.while` becomes a program of its own, since the runtime
+        of a control flow op becomes a program of its own, since the runtime
         executes it with a nested ProgramExecutor.
         """
         blocks: dict[str, Block] = {}
@@ -192,13 +229,15 @@ class IRModule:
 
             name = opview.name.value
             blocks[name] = opview.body.blocks[0]
-            for loop_index, while_op in enumerate(_collect_while_ops(opview)):
-                for region, region_name in zip(
-                    while_op.regions, ttnn.WhileOp.REGION_NAMES
-                ):
-                    blocks[
-                        _while_region_program_name(name, loop_index, region_name)
-                    ] = region.blocks[0]
+            for op_name, region_ops in _collect_region_ops(opview).items():
+                kind, suffixes = _REGION_PROGRAM_OPS[op_name]
+                for op_index, region_op in enumerate(region_ops):
+                    for region, suffix in zip(
+                        region_op.regions, suffixes(region_op), strict=True
+                    ):
+                        blocks[
+                            _region_program_name(name, kind, op_index, suffix)
+                        ] = region.blocks[0]
             return WalkResult.SKIP
 
         self.module.operation.walk(_visitor, walk_order=WalkOrder.PRE_ORDER)
