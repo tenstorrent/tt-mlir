@@ -17,16 +17,17 @@ OVERRIDE_PARAMETER_DISABLED_STR = "None"
 
 
 def parse_loc_string(loc_str):
-    """
-    This can be replaced by ttmlir.ir.Module.parse, but requires some further work to extract the actual location object from the module.
-    """
+    """Return the contents of a printed MLIR location, or ``None``."""
     if not isinstance(loc_str, str):
         logging.error(
             "Invalid LOC type in perf_trace: %s, expected string", type(loc_str)
         )
         # raise IndexError("Invalid LOC type in perf_trace: %s, expected string", type(loc_str))
         return None
-    match = re.match(r'^loc\("?([^")]+)"?\)', loc_str)
+    # Named, callsite, and fused locations may nest parentheses. The parsed
+    # contents are only used to validate that this is a printed MLIR location;
+    # callers retain the complete string when correlating profiler rows.
+    match = re.fullmatch(r"loc\((.+)\)", loc_str)
     if not match:
         logging.error("Failed to match location string: %s", loc_str)
         return None
