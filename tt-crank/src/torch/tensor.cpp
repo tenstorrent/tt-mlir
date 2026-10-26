@@ -12,6 +12,7 @@
 #include <utility>
 #include <vector>
 
+#include <ATen/ops/empty.h>
 #include <c10/core/Allocator.h>
 #include <c10/core/Storage.h>
 #include <c10/core/StorageImpl.h>
@@ -221,6 +222,44 @@ std::pair<::tt::runtime::Tensor, bool> runtime_from_torch_tensor(const at::Tenso
 
     bool borrow = try_borrow && borrowable(t);
     return {runtime_from_host_shards({t.data_ptr()}, t.sizes(), t.scalar_type(), /*borrow=*/borrow), borrow};
+}
+
+std::vector<at::Tensor> host_shards_of(const at::Tensor &t) {
+    auto runtime_shards = storage_of(t).to_host(/*untilize=*/true);
+    TORCH_CHECK(!runtime_shards.empty(), "tt-crank host_shards_of: runtime returned no shards");
+    const auto element_dtype = to_runtime_dtype(t.scalar_type());
+    const auto opts = at::TensorOptions().dtype(t.scalar_type()).device(at::kCPU);
+
+    std::vector<at::Tensor> shards;
+    shards.reserve(runtime_shards.size());
+    for (auto &shard : runtime_shards) {
+        at::Tensor cpu = at::empty(t.sizes(), opts);
+        TORCH_CHECK(as<std::int64_t>(::tt::runtime::getTensorVolume(shard)) == cpu.numel(),
+                    "tt-crank host_shards_of: shard volume ", ::tt::runtime::getTensorVolume(shard),
+                    " does not match the per-chip numel ", cpu.numel());
+        ::tt::runtime::memcpy(cpu.data_ptr(), shard, element_dtype);
+        shards.push_back(std::move(cpu));
+    }
+    return shards;
+}
+
+at::Tensor tt_from_host_shards(const std::vector<at::Tensor> &shards) {
+    TORCH_CHECK(!shards.empty(), "tt-crank tt_from_host_shards: no shards");
+    const at::Tensor &first = shards.front();
+    std::vector<at::Tensor> contiguous; // keeps any `.contiguous()` copies alive until upload
+    std::vector<void *> ptrs;
+    contiguous.reserve(shards.size());
+    ptrs.reserve(shards.size());
+    for (const at::Tensor &shard : shards) {
+        TORCH_CHECK(shard.is_cpu(), "tt-crank tt_from_host_shards: shards must be CPU tensors, got ", shard.device());
+        TORCH_CHECK(shard.sizes() == first.sizes() && shard.scalar_type() == first.scalar_type(),
+                    "tt-crank tt_from_host_shards: shards disagree on shape/dtype (", shard.sizes(), " ",
+                    shard.scalar_type(), " vs ", first.sizes(), " ", first.scalar_type(), ")");
+        contiguous.push_back(shard.contiguous());
+        ptrs.push_back(contiguous.back().data_ptr());
+    }
+    return wrap_tt_tensor(runtime_from_host_shards(std::move(ptrs), first.sizes(), first.scalar_type()), first.sizes(),
+                          first.scalar_type());
 }
 
 bool is_tt(const at::Device &d) {
