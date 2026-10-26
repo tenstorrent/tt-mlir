@@ -44,14 +44,52 @@ module {
     return %2 : tensor<3x2xbf16>
   }
 
-  // Pattern should NOT match: permute shuffles non-unit dim into leading position.
-  func.func @reshape_permute_reshape_no_match_perm_mixes(%arg0: tensor<6x4xbf16>) -> tensor<4x6xbf16> {
-    // CHECK-LABEL: @reshape_permute_reshape_no_match_perm_mixes
+  // Interior unit dim. The permutation moves a non-unit dim past the unit dim.
+  func.func @reshape_permute_reshape_interior_unit_dim(%arg0: tensor<6x4xbf16>) -> tensor<4x6xbf16> {
+    // CHECK-LABEL: @reshape_permute_reshape_interior_unit_dim
+    // CHECK-NOT: "ttir.reshape"
     // CHECK: "ttir.permute"
-    // CHECK-SAME: permutation = array<i64: 2, 0, 1>
+    // CHECK-SAME: permutation = array<i64: 1, 0>
     %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 6 : i32, 4 : i32]}> : (tensor<6x4xbf16>) -> tensor<1x6x4xbf16>
     %1 = "ttir.permute"(%0) <{permutation = array<i64: 2, 0, 1>}> : (tensor<1x6x4xbf16>) -> tensor<4x1x6xbf16>
     %2 = "ttir.reshape"(%1) <{shape = [4 : i32, 6 : i32]}> : (tensor<4x1x6xbf16>) -> tensor<4x6xbf16>
     return %2 : tensor<4x6xbf16>
+  }
+
+  // MLA Q-absorption pattern emitted by XLA.
+  func.func @reshape_permute_reshape_mla_q_absorption(%arg0: tensor<4096x32x128xbf16>) -> tensor<32x4096x128xbf16> {
+    // CHECK-LABEL: @reshape_permute_reshape_mla_q_absorption
+    // CHECK-NOT: "ttir.reshape"
+    // CHECK-NOT: x1x1xbf16
+    // CHECK: "ttir.permute"
+    // CHECK-SAME: permutation = array<i64: 1, 0, 2>
+    %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 4096 : i32, 32 : i32, 1 : i32, 128 : i32]}> : (tensor<4096x32x128xbf16>) -> tensor<1x4096x32x1x128xbf16>
+    %1 = "ttir.permute"(%0) <{permutation = array<i64: 2, 1, 4, 0, 3>}> : (tensor<1x4096x32x1x128xbf16>) -> tensor<32x4096x128x1x1xbf16>
+    %2 = "ttir.reshape"(%1) <{shape = [32 : i32, 4096 : i32, 128 : i32]}> : (tensor<32x4096x128x1x1xbf16>) -> tensor<32x4096x128xbf16>
+    return %2 : tensor<32x4096x128xbf16>
+  }
+
+  // Pattern must NOT match: the trailing reshape merges 2x3 into 6, which is
+  // real data movement rather than a unit-dim deletion.
+  func.func @reshape_permute_reshape_no_match_merges_dims(%arg0: tensor<4x2x3xbf16>) -> tensor<6x4xbf16> {
+    // CHECK-LABEL: @reshape_permute_reshape_no_match_merges_dims
+    // CHECK: "ttir.permute"
+    // CHECK-SAME: permutation = array<i64: 1, 2, 0>
+    %0 = "ttir.reshape"(%arg0) <{shape = [4 : i32, 2 : i32, 3 : i32]}> : (tensor<4x2x3xbf16>) -> tensor<4x2x3xbf16>
+    %1 = "ttir.permute"(%0) <{permutation = array<i64: 1, 2, 0>}> : (tensor<4x2x3xbf16>) -> tensor<2x3x4xbf16>
+    %2 = "ttir.reshape"(%1) <{shape = [6 : i32, 4 : i32]}> : (tensor<2x3x4xbf16>) -> tensor<6x4xbf16>
+    return %2 : tensor<6x4xbf16>
+  }
+
+  // Pattern must NOT match: the permute has a second consumer, so rewriting it
+  // would leave the original alive and duplicate the work.
+  func.func @reshape_permute_reshape_no_match_multi_use(%arg0: tensor<8x8xbf16>) -> (tensor<8x8xbf16>, tensor<1x1x8x8xbf16>) {
+    // CHECK-LABEL: @reshape_permute_reshape_no_match_multi_use
+    // CHECK: "ttir.permute"
+    // CHECK-SAME: permutation = array<i64: 0, 1, 3, 2>
+    %0 = "ttir.reshape"(%arg0) <{shape = [1 : i32, 1 : i32, 8 : i32, 8 : i32]}> : (tensor<8x8xbf16>) -> tensor<1x1x8x8xbf16>
+    %1 = "ttir.permute"(%0) <{permutation = array<i64: 0, 1, 3, 2>}> : (tensor<1x1x8x8xbf16>) -> tensor<1x1x8x8xbf16>
+    %2 = "ttir.reshape"(%1) <{shape = [8 : i32, 8 : i32]}> : (tensor<1x1x8x8xbf16>) -> tensor<8x8xbf16>
+    return %2, %1 : tensor<8x8xbf16>, tensor<1x1x8x8xbf16>
   }
 }
