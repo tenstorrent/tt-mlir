@@ -234,8 +234,15 @@ static void collectComputeOpsToErase(Block *block,
     if (op.hasTrait<OpTrait::IsTerminator>()) {
       continue;
     }
-    if (auto forOp = dyn_cast<scf::ForOp>(&op)) {
-      collectComputeOpsToErase(forOp.getBody(), eraseSet);
+    // Descend into structured control flow rather than erasing the whole op:
+    // its regions may host DMA ops that must stay on the datamovement thread
+    // alongside compute ops that must go.
+    if (isa<scf::ForOp, scf::IfOp, scf::WhileOp>(&op)) {
+      for (Region &region : op.getRegions()) {
+        for (Block &nested : region) {
+          collectComputeOpsToErase(&nested, eraseSet);
+        }
+      }
       continue;
     }
     bool isDMAOp = isa<ShardDMAOpInterface, DeviceSynchronizeOp>(&op);
