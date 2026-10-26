@@ -302,6 +302,12 @@ Device openMeshDevice(const MeshDeviceOptions &options) {
           meshConfig, l1SmallSize, traceRegionSize, options.numHWCQs,
           dispatchCoreType);
 
+  if (options.enableProgramCache) {
+    meshDevice->enable_program_cache();
+  } else {
+    meshDevice->disable_and_clear_program_cache();
+  }
+
   LOG_DEBUG("Device grid size = { ",
             meshDevice->compute_with_storage_grid_size().x, ", ",
             meshDevice->compute_with_storage_grid_size().y, " }");
@@ -413,6 +419,13 @@ bool isProgramCacheEnabled(Device meshDevice) {
       meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
           DeviceRuntime::TTMetal);
   return metalMeshDevice.get_program_cache().is_enabled();
+}
+
+size_t getNumProgramCacheEntries(Device meshDevice) {
+  ::tt::tt_metal::distributed::MeshDevice &metalMeshDevice =
+      meshDevice.as<::tt::tt_metal::distributed::MeshDevice>(
+          DeviceRuntime::TTMetal);
+  return metalMeshDevice.num_program_cache_entries();
 }
 
 void clearProgramCache(Device meshDevice) {
@@ -1078,7 +1091,8 @@ std::vector<Tensor> submit(Device deviceHandle, Binary executableHandle,
 
     outputs = executeMeshDeviceProgram(deviceProgramMeshDevice[i].get(),
                                        deviceProgram, inputs,
-                                       common::DylibManager(fbb.dylibs()));
+                                       common::DylibManager(fbb.dylibs()),
+                                       executableHandle.id(), programIndex, i);
 
     LOG_ASSERT(outputs.size() == program->outputs()->size(),
                "Outputs size mismatch");
