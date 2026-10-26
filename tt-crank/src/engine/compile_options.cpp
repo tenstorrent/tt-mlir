@@ -98,12 +98,13 @@ std::string CompileOptions::to_string() const {
     ss << ", enable_create_d2m_subgraphs: " << opt_bool(enable_create_d2m_subgraphs);
     ss << ", ttnn_perf_metrics_enabled: " << opt_bool(ttnn_perf_metrics_enabled);
     ss << ", ttnn_perf_metrics_output_file: " << opt_str(ttnn_perf_metrics_output_file);
+    ss << ", enable_zero_copy_input_mutations: " << opt_bool(enable_zero_copy_input_mutations);
     ss << " }";
 
     return ss.str();
 }
 
-void CompileOptions::set_options_on(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &opts) const {
+void CompileOptions::set_pipeline_options(mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &opts) const {
     if (optimization_level.has_value()) {
         opts.optimizationLevel = *optimization_level;
     }
