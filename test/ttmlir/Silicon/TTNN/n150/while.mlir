@@ -125,3 +125,58 @@ func.func @nested(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
     } -> (tensor<i32>, tensor<32x32xf32>)
   return %r#1 : tensor<32x32xf32>
 }
+
+// A body that yields one value into two carried slots. After the last
+// iteration both results come from that one value and are deallocated at their
+// own last uses, so they must not share one runtime wrapper.
+// CHECK-LABEL: func.func @duplicate_yield
+// CHECK: ttnn.while
+// CHECK-SAME: trip_count = 2 : i64
+func.func @duplicate_yield(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %i0 = "ttir.constant"() <{value = dense<0> : tensor<i32>}> : () -> tensor<i32>
+  %limit = "ttir.constant"() <{value = dense<2> : tensor<i32>}> : () -> tensor<i32>
+  %step = "ttir.constant"() <{value = dense<1> : tensor<i32>}> : () -> tensor<i32>
+  %r:3 = ttir.while inits(%i0, %arg0, %arg0 : tensor<i32>, tensor<32x32xf32>, tensor<32x32xf32>)
+                    captures(%limit, %step : tensor<i32>, tensor<i32>)
+    cond {
+    ^cond(%i: tensor<i32>, %x: tensor<32x32xf32>, %y: tensor<32x32xf32>, %l: tensor<i32>, %s: tensor<i32>):
+      %p = "ttir.lt"(%i, %l) : (tensor<i32>, tensor<i32>) -> tensor<i1>
+      ttir.yield %p : tensor<i1>
+    } do {
+    ^body(%i: tensor<i32>, %x: tensor<32x32xf32>, %y: tensor<32x32xf32>, %l: tensor<i32>, %s: tensor<i32>):
+      %next = "ttir.add"(%i, %s) : (tensor<i32>, tensor<i32>) -> tensor<i32>
+      %sum = "ttir.add"(%x, %y) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+      ttir.yield %next, %sum, %sum : tensor<i32>, tensor<32x32xf32>, tensor<32x32xf32>
+    } -> (tensor<i32>, tensor<32x32xf32>, tensor<32x32xf32>)
+  %e = "ttir.exp"(%r#1) : (tensor<32x32xf32>) -> tensor<32x32xf32>
+  %z = "ttir.add"(%e, %r#2) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %z : tensor<32x32xf32>
+}
+
+// A loop that runs zero times hands its inits back as its results. The init %x
+// is deallocated at its own last use, the multiply, while the result is still
+// read by the add after it, so the two must not share one runtime wrapper.
+// CHECK-LABEL: func.func @zero_trips
+// CHECK: ttnn.while
+// CHECK-SAME: trip_count = 0 : i64
+func.func @zero_trips(%arg0: tensor<32x32xf32>) -> tensor<32x32xf32> {
+  %x = "ttir.add"(%arg0, %arg0) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  %i0 = "ttir.constant"() <{value = dense<0> : tensor<i32>}> : () -> tensor<i32>
+  %limit = "ttir.constant"() <{value = dense<0> : tensor<i32>}> : () -> tensor<i32>
+  %step = "ttir.constant"() <{value = dense<1> : tensor<i32>}> : () -> tensor<i32>
+  %r:2 = ttir.while inits(%i0, %x : tensor<i32>, tensor<32x32xf32>)
+                    captures(%limit, %step : tensor<i32>, tensor<i32>)
+    cond {
+    ^cond(%i: tensor<i32>, %acc: tensor<32x32xf32>, %l: tensor<i32>, %s: tensor<i32>):
+      %p = "ttir.lt"(%i, %l) : (tensor<i32>, tensor<i32>) -> tensor<i1>
+      ttir.yield %p : tensor<i1>
+    } do {
+    ^body(%i: tensor<i32>, %acc: tensor<32x32xf32>, %l: tensor<i32>, %s: tensor<i32>):
+      %next = "ttir.add"(%i, %s) : (tensor<i32>, tensor<i32>) -> tensor<i32>
+      %acc2 = "ttir.add"(%acc, %acc) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+      ttir.yield %next, %acc2 : tensor<i32>, tensor<32x32xf32>
+    } -> (tensor<i32>, tensor<32x32xf32>)
+  %y = "ttir.multiply"(%r#1, %x) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  %z = "ttir.add"(%y, %r#1) : (tensor<32x32xf32>, tensor<32x32xf32>) -> tensor<32x32xf32>
+  return %z : tensor<32x32xf32>
+}
