@@ -8,6 +8,7 @@ import pytest
 import torch
 
 from tt_crank.torch.testing import (
+    ExecutionMode,
     assert_close_cpu_vs_tt,
     get_supported_dtypes,
     strict_no_fallback,
@@ -214,3 +215,52 @@ def test_softmax_attention_shape() -> None:
     # Attention scores: [B, H, S, S]
     a = torch.randn((1, 8, 128, 128), dtype=torch.bfloat16)
     assert_close_cpu_vs_tt(lambda x: torch.softmax(x, dim=-1), a, atol=0.05, rtol=0.05)
+
+
+# A Python scalar against a 0-d tensor, which torch decompositions do on every scalar loss
+# (`loss * (1 - label_smoothing)`, `loss / accumulation_steps`, ...). Two things had to hold:
+#  - compile: the lifted constant is 0-d. A `[1]` constant won the broadcast and turned `x.sum() * 0.5`
+#    into shape `[1]`, which no longer bound to the `[]` output torch allocated (backward died on the tangent).
+#  - eager: the wrapped-number flag survives the move to tt, so `at::result_type` keeps bf16. Without it
+#    a 0-d bf16 against the 0-d f64 scalar tensor promoted to f64.
+_SCALAR_ON_0D = {
+    "mul": lambda s: s * 0.5,
+    "rmul": lambda s: 0.5 * s,
+    "add": lambda s: s + 1.0,
+    "sub": lambda s: s - 1.0,
+    "div": lambda s: s / 2.0,
+    "pow": lambda s: s**2,
+    "rpow": lambda s: 2.0**s,
+    "scalar_tensor": lambda s: s * torch.scalar_tensor(0.5, dtype=s.dtype),
+    "add_alpha": lambda s: torch.add(s, 1.0, alpha=2.0),
+}
+
+
+@pytest.mark.parametrize("mode", list(ExecutionMode), ids=lambda m: m.name.lower())
+@pytest.mark.parametrize("op", list(_SCALAR_ON_0D), ids=list(_SCALAR_ON_0D))
+def test_scalar_on_0d_tensor_keeps_rank_0(op: str, mode: ExecutionMode) -> None:
+    a = torch.randn((32, 64), dtype=torch.bfloat16)
+    fn = _SCALAR_ON_0D[op]
+    # assert_close checks shape as well as values: a `[1]` result fails against the `[]` reference.
+    assert_close_cpu_vs_tt(lambda x: fn(x.sum()), a, atol=0.05, rtol=0.05, mode=mode)
+
+
+@pytest.mark.parametrize("op", ["mul", "sub", "div", "pow"])
+def test_scalar_on_0d_loss_compiled_backward(op: str) -> None:
+    """The training shape of the bug: a scaled scalar loss, compiled, then `.backward()` with the implicit
+    ones-tangent. The tangent is `[]`; the backward graph must accept it."""
+    fn = _SCALAR_ON_0D[op]
+    a = torch.randn((32, 64), dtype=torch.bfloat16)
+    ref = a.float().requires_grad_(True)
+    ref_loss = fn(ref.sum())
+    ref_loss.backward()
+    x = a.to("tt").requires_grad_(True)
+    torch._dynamo.reset()
+    loss = torch.compile(lambda t: fn(t.sum()), backend="tt", fullgraph=True)(x)
+    assert loss.shape == (), loss.shape
+    loss.backward()
+    torch._dynamo.reset()
+    torch.testing.assert_close(
+        loss.cpu().float(), ref_loss.detach(), atol=0.5, rtol=0.05
+    )
+    torch.testing.assert_close(x.grad.cpu().float(), ref.grad, atol=0.5, rtol=0.05)
