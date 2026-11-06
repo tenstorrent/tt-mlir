@@ -25,7 +25,9 @@ std::vector<Tensor>
 executeMeshDeviceProgram(::tt::tt_metal::distributed::MeshDevice *meshDevice,
                          const ::tt::target::metal::DeviceProgram *program,
                          const std::vector<Tensor> &inputs,
-                         common::DylibManager &&dylibs);
+                         common::DylibManager &&dylibs, std::uint64_t binaryId,
+                         std::uint32_t programIndex,
+                         std::uint32_t deviceProgramIndex);
 
 } // namespace tt::runtime::ttmetal
 
