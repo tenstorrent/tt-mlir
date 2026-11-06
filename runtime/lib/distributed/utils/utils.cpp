@@ -12,6 +12,7 @@
 #include <optional>
 #include <sstream>
 #include <string>
+#include <unistd.h>
 
 namespace tt::runtime::distributed::utils {
 
@@ -29,9 +30,19 @@ getWorkerExecutableCommand(std::uint16_t port,
   std::string portString = std::to_string(port);
   std::string command = workerPath + " --port " + portString;
 
+  std::string hostname;
   if (hostnameOpt.has_value() && !hostnameOpt->empty()) {
-    command += " --host " + hostnameOpt.value();
+    hostname = hostnameOpt.value();
+  } else {
+    char buf[256];
+    LOG_ASSERT(::gethostname(buf, sizeof(buf)) == 0,
+               "Failed to get local hostname");
+    hostname = buf;
+    LOG_INFO(
+        "Controller hostname not specified, defaulting to local hostname: ",
+        hostname);
   }
+  command += " --host " + hostname;
 
   return command;
 }
