@@ -127,6 +127,60 @@ def test_kernel_zeros_block_is_zero_and_f32():
         sim_zeros([1, 1, 1])
 
 
+def test_ccl_ops_have_single_device_backings():
+    from d2m_jit._src.layout_math import clear_current_mesh, set_current_mesh
+    from d2m_jit._src.sim.ops import (
+        Semaphore,
+        device_synchronize,
+        empty as sim_empty,
+        mesh_position,
+        remote_load as sim_remote_load,
+        remote_store as sim_remote_store,
+        semaphore_wait,
+    )
+
+    layout = _layout((32, 32))
+    value = torch.randn(32, 32)
+    src = d2m.to_layout(value, layout)
+    dst = d2m.empty(layout)
+    scratch = sim_empty([1, 1])
+    sem = Semaphore(0)
+
+    set_current_mesh([1, 2], ["linear", "linear"], "mesh")
+    try:
+        assert mesh_position(0) == 0
+        assert mesh_position(1) == 0
+    finally:
+        clear_current_mesh()
+
+    # Both the legacy positional multicast form and the CCL local-buffer form
+    # remain runnable. Fabric arguments are ordering/routing metadata in the
+    # simulator's single-device execution model.
+    legacy = sim_remote_load(src, [0, 0], [0, 0], [1, 1])
+    loaded = sim_remote_load(scratch, src, [0, 0])
+    assert loaded is scratch
+    assert torch.equal(legacy.to_2d(), value)
+    assert torch.equal(loaded.to_2d(), value)
+    device_synchronize(
+        sem,
+        start_device=[0, 0],
+        mcast_shape=[1, 2],
+        num_receivers=1,
+        core_indices=[0, 0],
+    )
+    sim_remote_store(
+        dst,
+        [0, 0],
+        loaded,
+        start_device=[0, 0],
+        device_mcast_shape=[1, 2],
+        semaphore=sem,
+        semaphore_indices=[0, 0],
+    )
+    semaphore_wait(sem, 1, reset=0)
+    assert torch.equal(dst.to_host(), value)
+
+
 # The audit that every device-registered in-kernel name has a sim backing needs
 # the device registry, so it lives in test_backend_switch.py rather than carving
 # a bindings-dependent exception out of this file's runtime-free guarantee.

@@ -8,7 +8,7 @@ import ast
 import functools
 
 from ttmlir.ir import *
-from ttmlir.dialects import d2m, ttcore, arith, linalg
+from ttmlir.dialects import d2m, ttcore, arith, linalg, tensor
 from ttmlir.dialects._ods_common import get_default_loc_context
 
 from ._src.utils import _asindex
@@ -26,9 +26,11 @@ from ._src.tensor_layout import (
 from ._src import builder as _builder
 from ._src.builder import (
     CompiledKernel,
+    FabricConfig,
     GlobalSemaphore,
     LazyTensor,
     MeshShard,
+    fabric_config,
     reduction_layout,
     arange,
     view_layout,
@@ -204,10 +206,97 @@ def _tile_bcast_type_attr(node):
     return _parse_tile_bcast_type(node.value)
 
 
+def _as_value(value):
+    """Coerce an OpView to its result Value; leave Values untouched."""
+    return value.result if hasattr(value, "result") else value
+
+
+def _idx_list(value):
+    """Normalize an optional index or index sequence to a list of Values."""
+    if value is None:
+        return []
+    if isinstance(value, (list, tuple)):
+        return [_asindex(item) for item in value]
+    return [_asindex(value)]
+
+
+def _i64_attr_from_literal(node):
+    if (
+        not isinstance(node, ast.Constant)
+        or not isinstance(node.value, int)
+        or isinstance(node.value, bool)
+    ):
+        raise D2mJitError("expected an integer literal")
+    return IntegerAttr.get(IntegerType.get_signless(64), node.value)
+
+
+def _static_int_from_ast(node, visitor):
+    if (
+        isinstance(node, ast.Constant)
+        and isinstance(node.value, int)
+        and not isinstance(node.value, bool)
+    ):
+        return node.value
+    if isinstance(node, ast.Name):
+        value = visitor.captures.get(node.id)
+        if isinstance(value, int) and not isinstance(value, bool):
+            return value
+    if isinstance(node, ast.UnaryOp):
+        value = _static_int_from_ast(node.operand, visitor)
+        if isinstance(node.op, ast.UAdd):
+            return value
+        if isinstance(node.op, ast.USub):
+            return -value
+    if isinstance(node, ast.BinOp):
+        lhs = _static_int_from_ast(node.left, visitor)
+        rhs = _static_int_from_ast(node.right, visitor)
+        if isinstance(node.op, ast.Add):
+            return lhs + rhs
+        if isinstance(node.op, ast.Sub):
+            return lhs - rhs
+        if isinstance(node.op, ast.Mult):
+            return lhs * rhs
+        if isinstance(node.op, ast.FloorDiv):
+            try:
+                return lhs // rhs
+            except ZeroDivisionError as exc:
+                raise visitor._format_error(node, exc) from exc
+        if isinstance(node.op, ast.Mod):
+            try:
+                return lhs % rhs
+            except ZeroDivisionError as exc:
+                raise visitor._format_error(node, exc) from exc
+    raise D2mJitError("expected a compile-time integer expression")
+
+
 @syntax("remote_load")
 def remote_load(
-    src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
+    *args, mcast_start_index=None, mcast_shape=None, mcast_dims=None
 ) -> MemTx:
+    # Preserve the original positional multicast form while adding the local
+    # buffer overload. Kernel index sequences resolve to tuples; the second
+    # argument in the buffer form is instead the source tensor value.
+    if 2 <= len(args) <= 5 and isinstance(args[1], (list, tuple)):
+        local_buffer, src, indices = None, args[0], args[1]
+        positional_mcast = args[2:]
+        mcast_values = [mcast_start_index, mcast_shape, mcast_dims]
+        mcast_names = ["mcast_start_index", "mcast_shape", "mcast_dims"]
+        for i, value in enumerate(positional_mcast):
+            if mcast_values[i] is not None:
+                raise D2mJitError(
+                    f"remote_load got multiple values for '{mcast_names[i]}'"
+                )
+            mcast_values[i] = value
+        mcast_start_index, mcast_shape, mcast_dims = mcast_values
+    elif len(args) == 3:
+        local_buffer, src, indices = args
+    else:
+        raise D2mJitError(
+            "remote_load expects (src, indices[, mcast_start_index, "
+            "mcast_shape, mcast_dims]) or (buffer, src, indices); "
+            f"got {len(args)} positional arguments"
+        )
+
     if mcast_dims is not None:
         if isinstance(mcast_dims, tuple):
             mcast_dims = list(mcast_dims)
@@ -215,10 +304,15 @@ def remote_load(
             if isinstance(mcast_dims, int):
                 mcast_dims = arith.constant(IndexType.get(src.context), mcast_dims)
             mcast_dims = [mcast_dims]
-    dst_type = RankedTensorType.get(
-        src.type.shape[len(indices) :], src.type.element_type
-    )
-    dst = d2m.empty(dst_type)
+    if local_buffer is None:
+        dst_type = RankedTensorType.get(
+            src.type.shape[len(indices) :], src.type.element_type
+        )
+        local_buffer = d2m.empty(dst_type)
+    else:
+        local_buffer = _as_value(local_buffer)
+        dst_type = local_buffer.type
+
     return d2m.remote_load(
         dst_type,
         src,
@@ -226,31 +320,77 @@ def remote_load(
         mcast_start_index=mcast_start_index,
         mcast_shape=mcast_shape,
         mcast_dims=mcast_dims,
-        local_buffer=dst,
+        local_buffer=local_buffer,
     )
 
 
 @syntax("remote_store")
-def remote_store(dst, indices, src):
+def remote_store(
+    dst,
+    indices,
+    src,
+    *,
+    start_device=None,
+    device_mcast_shape=None,
+    semaphore=None,
+    semaphore_indices=None,
+):
+    """Store a shard locally or across a mesh-device range."""
     return d2m.remote_store(
         dst.type,
         dst,
         indices,
-        start_device=[],
-        device_mcast_shape=[],
-        semaphore_indices=[],
+        start_device=_idx_list(start_device),
+        device_mcast_shape=_idx_list(device_mcast_shape),
+        semaphore_indices=_idx_list(semaphore_indices),
         local_buffer=src,
+        semaphore=semaphore,
     )
 
 
 @syntax(
     "core_index",
-    args_as_attr=[
-        lambda node: IntegerAttr.get(IntegerType.get_signless(64), node.value)
-    ],
+    args_as_attr=[_i64_attr_from_literal],
 )
 def core_index(index):
     return d2m.core_index(index)
+
+
+@syntax("mesh_position", args_as_attr=[_i64_attr_from_literal])
+def mesh_position(dim):
+    """Return this device's position along a mesh dimension."""
+    return d2m.mesh_position(dim)
+
+
+@syntax("semaphore_wait")
+def semaphore_wait(semaphore, value, reset=None):
+    return d2m.semaphore_wait(semaphore, _asindex(value), reset_value=_asindex(reset))
+
+
+@syntax(
+    "device_synchronize",
+    kwargs_as_attr={
+        "num_receivers": lambda node, visitor: IntegerAttr.get(
+            IntegerType.get_signless(32), _static_int_from_ast(node, visitor)
+        )
+    },
+)
+def device_synchronize(
+    semaphore,
+    *,
+    start_device=None,
+    mcast_shape=None,
+    num_receivers=0,
+    core_indices=None,
+):
+    """Synchronize fabric senders with their receiving mesh devices."""
+    return d2m.device_synchronize(
+        semaphore,
+        _idx_list(start_device),
+        _idx_list(mcast_shape),
+        num_receivers,
+        _idx_list(core_indices),
+    )
 
 
 # --- Block-level elementwise free functions ---------------------------------
@@ -801,7 +941,7 @@ def _shape_literal(node):
     if isinstance(node, (ast.List, ast.Tuple)):
         return [int(_const_value(element)) for element in node.elts]
     raise D2mJitError(
-        "zeros() expects a literal block shape, e.g. zeros([m_tiles, n_tiles]); "
+        "expected a literal block shape, e.g. [m_tiles, n_tiles]; "
         f"got {type(node).__name__}"
     )
 
@@ -813,6 +953,14 @@ def _zeros_op(shape):
     tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
     block_ty = RankedTensorType.get(list(shape), tile_ty)
     return _zeros_block(block_ty)
+
+
+@syntax("empty", args_as_attr=[_shape_literal])
+def _empty_op(shape):
+    """Kernel-body uninitialized L1 scratch block."""
+    ctx = get_default_loc_context()
+    tile_ty = ttcore.ir.TileType.get(ctx, 32, 32, float32)
+    return tensor.empty(list(shape), tile_ty)
 
 
 def _bool_attr_from_ast(node):

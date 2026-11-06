@@ -21,6 +21,7 @@ import threading
 import torch
 import torch.nn.functional as F
 
+from ..layout_math import current_mesh
 from ..tensor_layout import _to_data_type
 from .tensors import SimBlock, SimTensor, block_extent, TILE
 
@@ -79,11 +80,34 @@ class Semaphore:
 # --- movement ----------------------------------------------------------------
 
 
-def remote_load(
-    src, indices, mcast_start_index=None, mcast_shape=None, mcast_dims=None
-):
+def remote_load(*args, mcast_start_index=None, mcast_shape=None, mcast_dims=None):
+    if 2 <= len(args) <= 5 and isinstance(args[1], (list, tuple)):
+        local_buffer, src, indices = None, args[0], args[1]
+        positional_mcast = args[2:]
+        mcast_values = [mcast_start_index, mcast_shape, mcast_dims]
+        mcast_names = ["mcast_start_index", "mcast_shape", "mcast_dims"]
+        for i, value in enumerate(positional_mcast):
+            if mcast_values[i] is not None:
+                raise TypeError(
+                    f"remote_load got multiple values for '{mcast_names[i]}'"
+                )
+            mcast_values[i] = value
+        mcast_start_index, mcast_shape, mcast_dims = mcast_values
+    elif len(args) == 3:
+        local_buffer, src, indices = args
+    else:
+        raise TypeError(
+            "remote_load expects (src, indices[, mcast_start_index, "
+            "mcast_shape, mcast_dims]) or (buffer, src, indices); "
+            f"got {len(args)} positional arguments"
+        )
+
     if not isinstance(src, SimTensor):
         raise TypeError(f"remote_load source must be a SimTensor, got {type(src)}")
+    if local_buffer is not None and not isinstance(local_buffer, SimBlock):
+        raise TypeError(
+            f"remote_load buffer must be a SimBlock, got {type(local_buffer)}"
+        )
     if len(indices) != 2:
         raise NotImplementedError("sim remote_load supports rank-2 indices only")
     i, j = int(indices[0]), int(indices[1])
@@ -94,14 +118,36 @@ def remote_load(
             f"remote_load block [{i}, {j}] out of bounds for buffer {(rows, cols)}"
         )
     sl = src.buffer[i * em : (i + 1) * em, j * en : (j + 1) * en]
-    return SimBlock.from_2d(sl)
+    loaded = SimBlock.from_2d(sl)
+    if local_buffer is None:
+        return loaded
+    if local_buffer.tile_grid != loaded.tile_grid:
+        raise ValueError(
+            f"remote_load shape mismatch: buffer is {local_buffer.tile_grid} tiles "
+            f"but loaded block is {loaded.tile_grid} tiles"
+        )
+    local_buffer.tiles.copy_(loaded.tiles)
+    return local_buffer
 
 
-def remote_store(dst, indices, src):
+def remote_store(
+    dst,
+    indices,
+    src,
+    *,
+    start_device=None,
+    device_mcast_shape=None,
+    semaphore=None,
+    semaphore_indices=None,
+):
     if not isinstance(dst, SimTensor):
         raise TypeError(f"remote_store dest must be a SimTensor, got {type(dst)}")
     if not isinstance(src, SimBlock):
         raise TypeError(f"remote_store value must be a SimBlock, got {type(src)}")
+    if semaphore is not None and not isinstance(semaphore, Semaphore):
+        raise TypeError(
+            f"remote_store semaphore must be a Semaphore, got {type(semaphore)}"
+        )
     if len(indices) != 2:
         raise NotImplementedError("sim remote_store supports rank-2 indices only")
     i, j = int(indices[0]), int(indices[1])
@@ -120,6 +166,43 @@ def remote_store(dst, indices, src):
     dst.buffer[i * em : (i + 1) * em, j * en : (j + 1) * en] = patch.to(
         dst.buffer.dtype
     )
+    if semaphore is not None:
+        semaphore.inc(1)
+
+
+def mesh_position(dim):
+    """Return the coordinate of the simulator's single mesh device."""
+    mesh = current_mesh()
+    if mesh is None:
+        raise RuntimeError("mesh_position() requires a preceding mesh() declaration")
+    dim = int(dim)
+    if not 0 <= dim < len(mesh["shape"]):
+        raise IndexError(
+            f"mesh_position dim {dim} out of bounds for mesh shape {mesh['shape']}"
+        )
+    return 0
+
+
+def semaphore_wait(semaphore, value, reset=None):
+    if not isinstance(semaphore, Semaphore):
+        raise TypeError(f"semaphore_wait expected a Semaphore, got {type(semaphore)}")
+    semaphore.wait(value, reset=reset)
+
+
+def device_synchronize(
+    semaphore,
+    *,
+    start_device=None,
+    mcast_shape=None,
+    num_receivers=0,
+    core_indices=None,
+):
+    if not isinstance(semaphore, Semaphore):
+        raise TypeError(
+            f"device_synchronize expected a Semaphore, got {type(semaphore)}"
+        )
+    # Mesh devices and fabric traffic are not modeled. Kernel bodies execute
+    # serially on one simulated device, so this synchronization is complete.
 
 
 # --- elementwise helpers -----------------------------------------------------
@@ -316,6 +399,11 @@ def zeros(shape):
     return SimBlock(torch.zeros(bm, bn, TILE, TILE, dtype=torch.float32))
 
 
+def empty(shape):
+    """Kernel-body scratch block, deterministically zeroed in the simulator."""
+    return zeros(shape)
+
+
 def matmul(lhs, rhs, transpose_b=False):
     a = lhs.to_2d()
     b = rhs.to_2d()
@@ -432,8 +520,12 @@ SIM_OPS = dict(_BLOCK_OPS)
 SIM_OPS.update(
     {
         "core_index": core_index,
+        "device_synchronize": device_synchronize,
+        "empty": empty,
+        "mesh_position": mesh_position,
         "remote_load": remote_load,
         "remote_store": remote_store,
+        "semaphore_wait": semaphore_wait,
         "Semaphore": Semaphore,
         # Free function only -- there is no `!tensor.zeros` method form.
         "zeros": zeros,
