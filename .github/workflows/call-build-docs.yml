@@ -59,6 +59,9 @@ jobs:
         id: pages
         uses: actions/configure-pages@v5
 
+      - name: Generate per-dialect op reference
+        run: python docs/gen_dialect_op_docs.py
+
       - name: Build docs
         run: |
           mkdir -p docs/build/html
