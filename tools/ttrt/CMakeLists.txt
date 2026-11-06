@@ -60,6 +60,7 @@ declare_mlir_python_sources(TTRTSources
     common/callback.py
     common/check.py
     common/perf.py
+    common/profile_regions.py
     common/query.py
     common/read.py
     common/run.py
