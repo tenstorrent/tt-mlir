@@ -186,7 +186,7 @@ std::string calc_compilation_key(mlir::ModuleOp module_op,
 }
 
 void set_pipeline_options(const CompileOptions &options, mlir::tt::ttnn::TTIRToTTNNRuntimePipelineOptions &pm_opts) {
-    options.set_options_on(pm_opts);
+    options.set_pipeline_options(pm_opts);
 
     const auto &mesh_shape = ::tt::crank::runtime_device_mesh_shape();
     pm_opts.meshShape = std::vector<std::int64_t>(mesh_shape.begin(), mesh_shape.end());
