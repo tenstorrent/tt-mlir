@@ -208,6 +208,34 @@ static FailureOr<mlir::OperationState> createNewOperationState(
 
             return mlir::success();
           })
+          .Case<mlir::stablehlo::DynamicSliceOp>(
+              [&](auto dynamicSliceOp) {
+                // stablehlo.dynamic_slice stores its result shape in the
+                // slice_sizes attribute. Keep it consistent with the localized
+                // result type.
+                if (newTypes.empty()) {
+                  dynamicSliceOp->emitError(
+                      "DynamicSlice operation does not have a result type.");
+                  return mlir::failure();
+                }
+
+                llvm::SmallVector<int64_t> newSliceSizes(
+                    newTypes[0].getShape().begin(),
+                    newTypes[0].getShape().end());
+
+                llvm::StringRef sliceSizesAttrName = "slice_sizes";
+                assert(attrDict.contains(sliceSizesAttrName) &&
+                       "DynamicSlice operation does not have slice sizes "
+                       "attribute. Ill-formed operation");
+                auto namedAttrSliceSizesIt = llvm::find_if(
+                    namedAttrs, [&](const mlir::NamedAttribute &attr) {
+                      return attr.getName() == sliceSizesAttrName;
+                    });
+                namedAttrSliceSizesIt->setValue(
+                    mlir::DenseI64ArrayAttr::get(context, newSliceSizes));
+
+                return mlir::success();
+              })
           .Case<mlir::stablehlo::GatherOp>([&](auto gatherOp) {
             // 1. Get the sharding for each operand dimension.
             llvm::ArrayRef<mlir::sdy::DimensionShardingAttr>
