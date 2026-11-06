@@ -204,12 +204,12 @@ public:
       bool canConvert = true;
       funcOp.walk([&](Operation *op) {
         llvm::TypeSwitch<Operation *>(op)
-            .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp,
-                  PagedUpdateCacheOp>([&](auto cacheOp) {
-              if (!canPropagateDtype(funcOp, cacheOp.getCache())) {
-                canConvert = false;
-              }
-            });
+            .Case<FillCacheOp, PagedFillCacheOp, PagedUpdateCacheOp>(
+                [&](auto cacheOp) {
+                  if (!canPropagateDtype(funcOp, cacheOp.getCache())) {
+                    canConvert = false;
+                  }
+                });
       });
 
       if (!canConvert) {
@@ -221,10 +221,10 @@ public:
       convertCacheArgTypes(funcOp, dtype);
       funcOp.walk([&](Operation *op) {
         llvm::TypeSwitch<Operation *>(op)
-            .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp,
-                  PagedUpdateCacheOp>([&](auto cacheOp) {
-              propagateDtypeTowardRoot(cacheOp.getCache(), dtype);
-            });
+            .Case<FillCacheOp, PagedFillCacheOp, PagedUpdateCacheOp>(
+                [&](auto cacheOp) {
+                  propagateDtypeTowardRoot(cacheOp.getCache(), dtype);
+                });
       });
 
       // Insert typecasts on the input (fill value) of each cache op
@@ -233,11 +233,10 @@ public:
       // FLOAT32/BFLOAT16 for input dtype and handles dtype mismatch
       // internally.
       funcOp.walk([&](Operation *op) {
-        llvm::TypeSwitch<Operation *>(op)
-            .Case<FillCacheOp, UpdateCacheOp, PagedFillCacheOp>(
-                [&](auto cacheOp) {
-                  insertTypecastIfNeeded(builder, cacheOp, dtype);
-                });
+        llvm::TypeSwitch<Operation *>(op).Case<FillCacheOp, PagedFillCacheOp>(
+            [&](auto cacheOp) {
+              insertTypecastIfNeeded(builder, cacheOp, dtype);
+            });
       });
     });
   }
