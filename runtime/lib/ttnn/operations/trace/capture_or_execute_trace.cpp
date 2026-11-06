@@ -6,6 +6,7 @@
 
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/program_executor.h"
@@ -161,6 +162,12 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
              "Mismatched number of outputs, expected: ", op->outputs()->size(),
              " got: ", traceData.outputTensors.size());
 
+  static const bool hostTiming = std::getenv("TTMLIR_RT_HOST_TIMING") != nullptr;
+  using hclk = std::chrono::steady_clock;
+  const auto ht0 = hclk::now();
+  size_t h2dCount = 0, d2dCount = 0;
+  uint64_t h2dBytes = 0;
+  double h2dMs = 0;
   for (size_t i = 0; i < op->inputs()->size(); i++) {
     const ::tt::target::ttnn::TensorRef *input = op->inputs()->Get(i);
     const ::tt::runtime::ttnn::TTNNTensorWrapper &inputTensorWrapper =
@@ -187,14 +194,20 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
       LOG_DEBUG("Device-resident tensor version changed "
                 "(constant/parameter or KV cache). Input index: ",
                 i, ", expected version: ", inputSlotWrapper.getVersion());
+      d2dCount++;
       copyTensorFromDeviceToDevice(inputTensorWrapper.getTensor(),
                                    inputSlotWrapper.getTensor());
     } else {
       // Regular inputs reside on host and are copied into their trace input
       // slots on device. A version mismatch is expected here since the host
       // tensor can change.
+      const auto ct0 = hclk::now();
       copyTensorFromHostToDevice(inputTensorWrapper.getTensor(),
                                  inputSlotWrapper.getTensor());
+      h2dMs += std::chrono::duration<double, std::milli>(hclk::now() - ct0).count();
+      h2dCount++;
+      h2dBytes += inputTensorWrapper.getTensor().physical_volume() *
+                  inputTensorWrapper.getTensor().element_size();
     }
 
     // Input slot will now contain identical data as the input tensor
@@ -202,6 +215,7 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
     inputSlotWrapper.syncVersion(inputTensorWrapper);
   }
 
+  const auto ht1 = hclk::now();
   ::ttnn::Tensor traceIdTensor =
       ::tt::runtime::ttnn::utils::createTTNNTensor<uint32_t>(
           &traceData.traceId.get(), ::ttnn::Shape(), ::ttnn::DataType::UINT32);
@@ -222,11 +236,19 @@ static void executeTrace(const ::tt::target::ttnn::CaptureOrExecuteTraceOp *op,
                            /*constEvalProgram=*/false,
                            /*programSemaphoreInputs=*/{});
   executor.execute();
+  const auto ht2 = hclk::now();
 
   for (size_t i = 0; i < op->outputs()->size(); i++) {
     const ::tt::target::ttnn::TensorRef *output = op->outputs()->Get(i);
     context.getTensorPool().insertRuntimeTensorAndValidate(
         output, traceData.outputTensors[i]);
+  }
+  if (hostTiming) {
+    const auto ht3 = hclk::now();
+    auto ms = [](auto a, auto b) { return std::chrono::duration<double, std::milli>(b - a).count(); };
+    std::fprintf(stderr,
+                 "[HOST_TIMING] execute_trace: input_sync=%.2f ms (h2d n=%zu %.1f MB copy=%.2f ms, d2d n=%zu, inputs=%u) execute=%.2f ms outputs=%.2f ms\n",
+                 ms(ht0, ht1), h2dCount, h2dBytes / 1e6, h2dMs, d2dCount, op->inputs()->size(), ms(ht1, ht2), ms(ht2, ht3));
   }
 }
 

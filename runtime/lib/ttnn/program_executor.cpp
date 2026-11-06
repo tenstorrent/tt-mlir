@@ -8,6 +8,9 @@
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 #include <cstdio>
 #include <cstdlib>
+#include <chrono>
+#include <map>
+#include <string>
 
 #include <tt-metalium/distributed.hpp>
 #endif
@@ -271,6 +274,11 @@ void ProgramExecutor::execute() {
             "Starting execution of program: ", program->name()->c_str());
   runProgramCallback(debug::Hooks::get().getpreProgramCallback(),
                      executableHandle, context.get());
+  // TTMLIR_RT_HOST_TIMING=1: per-op-type host wall time of this program.
+  static const bool hostTiming = std::getenv("TTMLIR_RT_HOST_TIMING") != nullptr;
+  struct OpStat { size_t count = 0; double ms = 0; double maxMs = 0; };
+  std::map<std::string, OpStat> opStats;
+  const auto progT0 = std::chrono::steady_clock::now();
   for (const ::tt::target::ttnn::Operation *op : *program->operations()) {
     LOG_DEBUG(LogType::LogRuntimeTTNN,
               "Executing operation: ", op->debug_info()->c_str());
@@ -282,7 +290,20 @@ void ProgramExecutor::execute() {
         perf::Env::get().tracyProgramMetadata);
     runOpCallback(debug::Hooks::get().getPreOperatorCallback(),
                   executableHandle, op, context.get());
+    std::chrono::steady_clock::time_point opT0;
+    if (hostTiming) {
+      opT0 = std::chrono::steady_clock::now();
+    }
     runOperation(op);
+    if (hostTiming) {
+      const double opMs = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - opT0)
+                              .count();
+      OpStat &st = opStats[::tt::target::ttnn::EnumNameOpType(op->type_type())];
+      st.count++;
+      st.ms += opMs;
+      st.maxMs = std::max(st.maxMs, opMs);
+    }
 #if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
     syncAfterOpIfNeeded();
 #endif
@@ -296,6 +317,19 @@ void ProgramExecutor::execute() {
     runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
     readProfilerDataIfNeeded();
+  }
+
+  if (hostTiming) {
+    const double progMs = std::chrono::duration<double, std::milli>(
+                              std::chrono::steady_clock::now() - progT0)
+                              .count();
+    std::fprintf(stderr, "[HOST_TIMING] program %s: %.2f ms over %u ops\n",
+                 program->name()->c_str(), progMs,
+                 program->operations()->size());
+    for (const auto &[name, st] : opStats) {
+      std::fprintf(stderr, "[HOST_TIMING]   %-28s n=%-5zu total=%.3f ms max=%.3f ms\n",
+                   name.c_str(), st.count, st.ms, st.maxMs);
+    }
   }
 
   runProgramCallback(debug::Hooks::get().getpostProgramCallback(),
