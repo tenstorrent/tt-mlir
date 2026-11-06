@@ -11,6 +11,8 @@
 #include "ttnn/operations/eltwise/unary/common/unary_op_types.hpp"
 #include "ttnn/operations/eltwise/unary/unary.hpp"
 
+#include "ttnn/operations/experimental/quasar/binary/binary.hpp"
+
 namespace tt::runtime::ttnn::operations::eltwise::unary {
 
 static void runEltwiseUnaryOp(
@@ -176,7 +178,36 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Relu: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
+    // Quasar binds no unary op family at all, so unlike add there is no
+    // quasar::relu to substitute: the mainline unary path builds a
+    // DataMovementKernel, whose constructor TT_FATALs there.
+    //
+    // Express relu as a tensor-scalar add with relu fused as an LHS
+    // activation. relu(x) + 0 == relu(x), adding 0.0f is exact in bf16, and
+    // both tensor-scalar add and LHS activation fusion route onto Quasar's
+    // binary_ng FPU kernel -- the path already proven by the Add case above.
+    //
+    // A rewrite rather than a redirect, and deliberately a stopgap: folding
+    // relu into the producing conv/add belongs in the compiler's fusing pass.
+    if (utils::isQuasar()) {
+      runEltwiseUnaryOp(
+          op, tensorPool,
+          [](const ::ttnn::Tensor &in,
+             const std::optional<::ttnn::MemoryConfig> &memoryConfig,
+             const std::optional<::ttnn::Tensor> &optionalOutputTensor,
+             const std::optional<::ttnn::CoreRangeSet> &) {
+            using ::ttnn::operations::unary::EltwiseUnaryWithParam;
+            using ::ttnn::operations::unary::UnaryOpType;
+            const std::array<EltwiseUnaryWithParam, 1> reluActivation{
+                EltwiseUnaryWithParam(UnaryOpType::RELU)};
+            return ::ttnn::operations::experimental::quasar::binary::add(
+                in, 0.0f, /*output_dtype=*/std::nullopt, memoryConfig,
+                optionalOutputTensor, /*post_activations=*/{},
+                /*lhs_activations=*/reluActivation);
+          });
+    } else {
+      runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
+    }
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Relu6: {
