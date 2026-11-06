@@ -15,6 +15,8 @@
 #include "ttmlir/FunctionTypes.h"
 #include "ttmlir/Utils.h"
 #include <atomic>
+#include <cstdlib>
+#include <optional>
 
 namespace mlir::tt::ttnn {
 #define GEN_PASS_DEF_TTNNTRACEHOISTTRANSFORM
@@ -37,6 +39,54 @@ inline bool isSemaphoreValue(mlir::Value value) {
 }
 } // namespace
 
+// Trace input re-staging. A host input whose row-major page (one row of the
+// last dimension) is only a few bytes costs one dispatch command per page on
+// every host-to-device write: a 0.26 MB tensor with 4-byte pages takes several
+// milliseconds of dispatch time per frame. Such inputs get a staging slot of
+// the same bytes shaped [1, 1, N / 1024, 1024] (2-4 KB pages) and are re-paged
+// on device by a reshape at the trace entry. TTMLIR_TRACE_NO_INPUT_RESTAGE=1
+// keeps the original slot layout.
+static bool inputRestageDisabled() {
+  static const bool disabled =
+      std::getenv("TTMLIR_TRACE_NO_INPUT_RESTAGE") != nullptr;
+  return disabled;
+}
+
+static std::optional<RankedTensorType>
+getStagedInputType(RankedTensorType type) {
+  if (inputRestageDisabled()) {
+    return std::nullopt;
+  }
+  auto layout = mlir::dyn_cast_or_null<TTNNLayoutAttr>(type.getEncoding());
+  if (!layout || layout.getLayout() != Layout::RowMajor ||
+      layout.getBufferType() != BufferType::DRAM ||
+      !layout.hasInterleavedDRAMTensorMemoryLayout()) {
+    return std::nullopt;
+  }
+  if (type.getRank() < 1 || !type.hasStaticShape()) {
+    return std::nullopt;
+  }
+  const int64_t elemBytes = type.getElementTypeBitWidth() / 8;
+  if (elemBytes <= 0) {
+    return std::nullopt;
+  }
+  constexpr int64_t kMinPageBytes = 1024;
+  if (type.getShape().back() * elemBytes >= kMinPageBytes) {
+    return std::nullopt;
+  }
+  constexpr int64_t kStagedRowElems = 1024;
+  const int64_t volume = type.getNumElements();
+  if (volume < kStagedRowElems || volume % kStagedRowElems != 0) {
+    return std::nullopt;
+  }
+  llvm::SmallVector<int64_t> stagedShape{1, 1, volume / kStagedRowElems,
+                                         kStagedRowElems};
+  TTNNLayoutAttr stagedLayout =
+      TTNNLayoutAttr::Builder(layout, stagedShape).build();
+  return RankedTensorType::get(stagedShape, type.getElementType(),
+                               stagedLayout);
+}
+
 class TTNNTraceHoistTransform
     : public impl::TTNNTraceHoistTransformBase<TTNNTraceHoistTransform> {
 public:
@@ -53,6 +103,10 @@ public:
   }
 
 private:
+  // Original (un-staged) input types of each trace function, by index.
+  llvm::DenseMap<uint64_t, llvm::SmallVector<mlir::Type>>
+      originalTraceInputTypes;
+
   bool shouldHoistOp(Operation *op) {
     bool shouldHoist = true;
     shouldHoist &= !::mlir::isa<func::ReturnOp>(op);
@@ -260,9 +314,25 @@ private:
 
     collectFunctionBoundary(opsToHoist, inputs, outputs);
 
+    llvm::SmallVector<mlir::Type> originalInputTypes;
+    llvm::SmallVector<bool> inputIsStaged;
     for (mlir::Value input : inputs) {
-      inputTypes.push_back(input.getType());
+      mlir::Type inputType = input.getType();
+      originalInputTypes.push_back(inputType);
+      bool staged = false;
+      if (!isSemaphoreValue(input) && !isDeviceResidentValue(input)) {
+        if (auto rankedType = mlir::dyn_cast<RankedTensorType>(inputType)) {
+          if (std::optional<RankedTensorType> stagedType =
+                  getStagedInputType(rankedType)) {
+            inputType = *stagedType;
+            staged = true;
+          }
+        }
+      }
+      inputIsStaged.push_back(staged);
+      inputTypes.push_back(inputType);
     }
+    originalTraceInputTypes[traceFuncIndex] = originalInputTypes;
     for (mlir::Value output : outputs) {
       outputTypes.push_back(output.getType());
     }
@@ -292,7 +362,19 @@ private:
     // arguments/intermediates
     llvm::DenseMap<mlir::Value, mlir::Value> valueMap;
     for (size_t i = 0; i < inputs.size(); i++) {
-      valueMap.insert({inputs[i], traceFuncOp.getArgument(i)});
+      mlir::Value traceArg = traceFuncOp.getArgument(i);
+      if (inputIsStaged[i]) {
+        auto originalType =
+            mlir::cast<RankedTensorType>(originalInputTypes[i]);
+        llvm::SmallVector<int32_t> originalShape(
+            originalType.getShape().begin(), originalType.getShape().end());
+        traceArg = builder
+                       .create<ttnn::ReshapeOp>(
+                           funcOp.getLoc(), originalType, traceArg,
+                           builder.getI32ArrayAttr(originalShape))
+                       .getResult();
+      }
+      valueMap.insert({inputs[i], traceArg});
     }
 
     for (Operation *op : opsToHoist) {
@@ -396,8 +478,17 @@ private:
       // capture. We create two types for each regular input:
       // 1. Host-side type (system memory) for the function signature
       // 2. Device-side slot type (DRAM) for persistent trace storage
+      // The host argument keeps the caller's shape; only the device slot may
+      // be staged (see getStagedInputType).
+      RankedTensorType hostBaseType = originalRankedTensorType;
+      auto originalTypesIt = originalTraceInputTypes.find(traceFuncIndex);
+      if (originalTypesIt != originalTraceInputTypes.end() &&
+          i < originalTypesIt->second.size()) {
+        hostBaseType =
+            mlir::cast<RankedTensorType>(originalTypesIt->second[i]);
+      }
       RankedTensorType inputArgType = utils::RankedTensorTypeFactory::create(
-          originalRankedTensorType, BufferType::SystemMemory);
+          hostBaseType, BufferType::SystemMemory);
 
       inputTypes.push_back(inputArgType);
 

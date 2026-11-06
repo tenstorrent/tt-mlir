@@ -32,6 +32,22 @@ static void copyTensorFromHostToDevice(const ::ttnn::Tensor &srcTensor,
                  dstTensor.storage_type() == ::ttnn::StorageType::DEVICE,
              "srcTensor must be on host and dstTensor must be on device");
 
+  if (srcTensor.logical_shape() != dstTensor.logical_shape()) {
+    // Staged trace input slot: the same bytes with a different page layout.
+    // Write the host bytes straight into the slot; the tensor-based copy
+    // would re-derive the slot's spec from the host tensor.
+    const auto hostBuffer = srcTensor.host_tensor().buffer().get_shard(
+        ::tt::tt_metal::distributed::MeshCoordinate(0, 0));
+    LOG_ASSERT(hostBuffer.has_value(), "Host tensor has no shard at (0, 0)");
+    auto bytes = hostBuffer->view_bytes();
+    LOG_ASSERT(bytes.size() ==
+                   dstTensor.tensor_spec().compute_packed_buffer_size_bytes(),
+               "Host bytes (", bytes.size(),
+               ") do not match the trace input slot size");
+    ::ttnn::copy_to_device(dstTensor.device()->mesh_command_queue(),
+                           bytes.data(), dstTensor, std::nullopt);
+    return;
+  }
   ::ttnn::copy_to_device(srcTensor, dstTensor);
 }
 
