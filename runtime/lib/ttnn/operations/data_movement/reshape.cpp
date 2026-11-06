@@ -6,7 +6,10 @@
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
 
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
+
+#include "ttnn/operations/experimental/quasar/reshape_view/reshape.hpp"
 
 namespace tt::runtime::ttnn::operations::data_movement {
 void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
@@ -22,7 +25,13 @@ void run(const ::tt::target::ttnn::ReshapeOp *op, ProgramContext &context) {
                 ::tt::runtime::ttnn::utils::getTensorRefMemoryConfig(op->out()))
           : ::tt::runtime::ttnn::utils::createMemoryConfigIfNeeded(
                 op->memory_config());
-  ::ttnn::Tensor out = ::ttnn::reshape(in, shape, memoryConfig);
+  // On Quasar, ttnn::reshape's program factory builds a DataMovementKernel and
+  // TT_FATALs. See utils::isQuasar(). The Quasar reshape takes the same
+  // arguments -- its ttsl::Span<const int32_t> overload binds `shape` directly.
+  ::ttnn::Tensor out = utils::isQuasar()
+                           ? ::ttnn::operations::experimental::quasar::reshape(
+                                 in, shape, memoryConfig)
+                           : ::ttnn::reshape(in, shape, memoryConfig);
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 } // namespace tt::runtime::ttnn::operations::data_movement
