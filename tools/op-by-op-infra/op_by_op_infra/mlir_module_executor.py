@@ -126,6 +126,21 @@ class MLIRModuleExecutor:
 
         self._execution_result.last_update = datetime.now()
 
+    def _record_error(self, error: Exception) -> None:
+        """
+        Stores the diagnostic from a failed execution step.
+
+        Each step swallows its exception by design: execution stops where it
+        failed and the result reports how far it got (see `_execute`). Without
+        recording the message here, `convert_to_pydantic_model` has nothing to
+        put in `OpTest.error_message` and falls back to a placeholder
+        ("Last step successfully finished: <phase>."), which tells you *where* an
+        op died but never *why*. Only the first error is kept -- it is the cause;
+        anything after it is a consequence.
+        """
+        if self._execution_result.error_message is None:
+            self._execution_result.error_message = str(error)
+
     def _compile(self) -> ModuleWrapper:
         """
         Attempts compiling stored module down to TTNN.
@@ -183,8 +198,10 @@ class MLIRModuleExecutor:
                 ),
             )
             self._debug_print_module(ttnn)
-        finally:
-            return self._execution_result.last_generated_module
+        except Exception as e:  # noqa: BLE001 - record and continue, see _execute
+            self._record_error(e)
+
+        return self._execution_result.last_generated_module
 
     def _compile_ttir_to_ttnn(self) -> ModuleWrapper:
         """
@@ -209,8 +226,10 @@ class MLIRModuleExecutor:
                 ),
             )
             self._debug_print_module(ttnn)
-        finally:
-            return self._execution_result.last_generated_module
+        except Exception as e:  # noqa: BLE001 - record and continue, see _execute
+            self._record_error(e)
+
+        return self._execution_result.last_generated_module
 
     def _generate_flatbuffer(
         self, flatbuffer_name: str = "ttnn_fb.ttnn"
@@ -230,8 +249,10 @@ class MLIRModuleExecutor:
                 ExecutionPhase.GENERATED_FLATBUFFER,
                 generated_flatbuffer_path=flatbuffer_path,
             )
-        finally:
-            return self._execution_result.flatbuffer_path
+        except Exception as e:  # noqa: BLE001 - record and continue, see _execute
+            self._record_error(e)
+
+        return self._execution_result.flatbuffer_path
 
     def _run(self) -> bool:
         """
