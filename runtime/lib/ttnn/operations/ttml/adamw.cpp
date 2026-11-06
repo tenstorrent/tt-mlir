@@ -7,6 +7,8 @@
 #include "metal/optimizers/adamw/adamw.hpp" // ttml::metal::adamw
 #include "ttnn/distributed/api.hpp"
 
+#include <random>
+
 namespace tt::runtime::ttnn::operations::ttml {
 
 // Device -> host readback of a single-element tensor. Cached per program run
@@ -31,6 +33,14 @@ static float readScalar(ProgramContext &context,
   });
 }
 
+// Generate a seed for stochastic rounding. `ttml::metal::adamw` requires it iff
+// stochastic rounding is enabled. A constant seed would defeat the purpose of
+// stochastic rounding by reusing the same rounding sequence in every step.
+static uint32_t drawStochasticRoundingSeed() {
+  static thread_local std::mt19937 generator(std::random_device{}());
+  return static_cast<uint32_t>(generator());
+}
+
 void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
 
@@ -51,13 +61,17 @@ void run(const ::tt::target::ttnn::AdamWOp *op, ProgramContext &context) {
   const ::ttml::metal::StochasticRounding stochasticRounding =
       op->stochastic_rounding() ? ::ttml::metal::StochasticRounding::Enabled
                                 : ::ttml::metal::StochasticRounding::Disabled;
+  const std::optional<uint32_t> stochasticRoundingSeed =
+      op->stochastic_rounding()
+          ? std::optional<uint32_t>(drawStochasticRoundingSeed())
+          : std::nullopt;
 
   // param, exp_avg, exp_avg_sq (and max_exp_avg_sq) are all updated in place.
-  ::ttml::metal::adamw(param, grad, expAvg, expAvgSq, maxExpAvgSq,
-                       readScalar(context, op->lr()), op->beta1(), op->beta2(),
-                       readScalar(context, op->beta1_pow()),
-                       readScalar(context, op->beta2_pow()), op->epsilon(),
-                       op->weight_decay(), stochasticRounding);
+  ::ttml::metal::adamw(
+      param, grad, expAvg, expAvgSq, maxExpAvgSq, readScalar(context, op->lr()),
+      op->beta1(), op->beta2(), readScalar(context, op->beta1_pow()),
+      readScalar(context, op->beta2_pow()), op->epsilon(), op->weight_decay(),
+      stochasticRounding, stochasticRoundingSeed);
 }
 
 } // namespace tt::runtime::ttnn::operations::ttml
