@@ -88,13 +88,20 @@ bool canUseReinterpretLayoutView(const PlanState &current,
   if (!current.hasLayout() || !target.hasLayout()) {
     return false;
   }
+  // Note: dim alignments are intentionally not compared here. They only affect
+  // the physical layout through padding of the device shape, so once the device
+  // shapes (current.type.getShape()) are equal the alignments are physically
+  // immaterial: two layouts that pad to the same device shape describe the same
+  // data placement and can be reinterpreted in place (e.g. a 4096x512 buffer is
+  // identical under 256x256 and 32x32 alignment). This avoids a redundant
+  // untilize->reshard->tilize round trip for alignment-only metadata changes.
   return current.type.getShape() == target.type.getShape() &&
          current.type.getElementType() == target.type.getElementType() &&
          current.getGridShape() == target.getGridShape() &&
          current.getLayout()->getLogicalShape() ==
              target.getLayout()->getLogicalShape() &&
-         current.getLayout()->getDimAlignments() ==
-             target.getLayout()->getDimAlignments() &&
+         current.getLayout()->getCollapsedIntervals() ==
+             target.getLayout()->getCollapsedIntervals() &&
          current.getLayout()->getMemorySpace() ==
              target.getLayout()->getMemorySpace() &&
          current.getLayout()->getMemoryLayout() ==
