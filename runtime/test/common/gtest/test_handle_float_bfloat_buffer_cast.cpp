@@ -44,3 +44,18 @@ TEST(HandleFloat16ToBfloat16BufferCast, HandleFloat16Max) {
   EXPECT_EQ(bfloat_buffer[0], bfloat16_from_float16_min);
   EXPECT_EQ(bfloat_buffer[1], bfloat16_from_float16_max);
 }
+
+TEST(HandleBfloat16ToBoolBufferCast, TreatBothSignedZerosAsFalse) {
+  // IEEE 754 signed zeros are numerically equal, including in bool casts.
+  uint16_t bfloat_buffer[] = {0x0000, 0x8000, 0x3F80, 0xBF80,
+                              0x0001, 0x7F80, 0x7FC0};
+  bool bool_buffer[7] = {};
+  tt::runtime::utils::detail::handleBFloat16ToBool(bfloat_buffer, bool_buffer,
+                                                   7);
+
+  EXPECT_FALSE(bool_buffer[0]); // +0.0
+  EXPECT_FALSE(bool_buffer[1]); // -0.0
+  for (int i = 2; i < 7; ++i) {
+    EXPECT_TRUE(bool_buffer[i]); // finite, subnormal, infinity, NaN
+  }
+}
