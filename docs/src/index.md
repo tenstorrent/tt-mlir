@@ -53,6 +53,7 @@ ttnn-jit
 ttnn-bug-repros
 python-bindings
 flatbuffers
+system-descriptor
 llvm_dependency_update
 ```
 

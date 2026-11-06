@@ -4,6 +4,9 @@ Device in tt-mlir is somewhat of an overloaded term and can refer to different
 things depending on the context. This document will only speak to the compiler's
 abstract representation of a device captured by attribute `#ttcore.device`.
 
+For the underlying system's resource and connectivity fields, see the
+[System Descriptor Field Guide](../system-descriptor.md).
+
 ## Terms
 
 There are many overloaded terms when talking about devices and grids, this

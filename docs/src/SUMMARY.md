@@ -32,6 +32,7 @@
 - [Creating bug repros for TTNN](./ttnn-bug-repros.md)
 - [Python Bindings](./python-bindings.md)
 - [Flatbuffers](./flatbuffers.md)
+- [System Descriptor Field Guide](./system-descriptor.md)
 - [LLVM Dependency Update](./llvm_dependency_update.md)
 - [CI](./ci.md)
 - [Additional Reading](./additional-reading.md)

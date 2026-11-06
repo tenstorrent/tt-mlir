@@ -358,6 +358,9 @@ Enabling the `--debugger` flag sets a [pbd trace](https://www.google.com/url?sa=
 Query the system to obtain the system desc file (optionally store it to disk)
 Note: It's required to be on a system with silicon and to have a runtime enabled build `-DTTMLIR_ENABLE_RUNTIME=ON`.
 
+See the [System Descriptor Field Guide](./system-descriptor.md) for field meanings,
+units, chip indexing, and the distinction between queried values and placeholders.
+
 ```bash
 ttrt query --help
 ttrt query
