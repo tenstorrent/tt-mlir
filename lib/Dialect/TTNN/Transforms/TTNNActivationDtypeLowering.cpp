@@ -26,9 +26,7 @@ namespace {
 // not contain any ToLayoutOp on their chains. When the LM-head / QKV->RoPE
 // patterns are added (they do have a ToLayoutOp), it should be admitted here
 // only when its input and output dtypes match.
-static bool isViewLikeOp(Operation *op) {
-  return mlir::isa<ReshapeOp, SliceStaticOp, ToMemoryConfigOp>(op);
-}
+static bool isViewLikeOp(Operation *op) { return utils::isViewLikeOp(op); }
 
 // CCL ops: shape changes, dtype is preserved.
 static bool isCCLOp(Operation *op) {

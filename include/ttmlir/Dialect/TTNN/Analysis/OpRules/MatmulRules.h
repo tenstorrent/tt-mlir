@@ -14,7 +14,7 @@ namespace mlir::tt::ttnn {
 //
 // Output hints:
 //   Filter L1-interleaved (worst of both worlds for matmul:
-//   no program config, HiFi4 fallback, L1 pressure).
+//   no compiler program config, L1 pressure).
 //   Use partial configs (dedup by bufferType+memLayout).
 //
 // Op-specific attributes:
@@ -37,7 +37,7 @@ struct MatmulRuleBook : OpRuleBook {
   LayoutFilterFn getInputLayoutFilter(unsigned operandIdx) const override;
 
   /// Apply MatmulProgramConfig + fused activation dedup.
-  /// For DS candidates: set program/compute config only.
+  /// For DS candidates: set the program config only.
   void applyOpSpecificAttrs(Operation *op,
                             const BeamCandidate &candidate) const override;
 

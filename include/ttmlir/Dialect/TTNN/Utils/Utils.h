@@ -45,6 +45,13 @@ float getTensorL1UsageCap(Operation *op, float defaultValue = 0.95f);
 // the path stays off unless something asked for it.
 bool isDRAMShardedMatmulEnabled(Operation *op);
 
+// Collective (CCL) ops. None of them implements the op-model interface.
+bool isCCLOp(Operation *op);
+
+// Ops that pass their operand through with only its shape or memory config
+// changed: reshape, static slice and to_memory_config.
+bool isViewLikeOp(Operation *op);
+
 // Helper function to retrieve the per-core L1 usage reserved for the retained
 // (permanent) tensors.
 uint64_t getReservedL1Usage(Operation *op);
