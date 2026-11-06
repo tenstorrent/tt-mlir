@@ -39,6 +39,20 @@ static bool containsAccumulatingCompute(Operation *op) {
       .wasInterrupted();
 }
 
+static bool hasDataMovementAccess(const utils::CBUsageInfo &usageInfo) {
+  for (Operation *producer : usageInfo.producers) {
+    if (isa<d2m::ShardDMAOpInterface>(producer)) {
+      return true;
+    }
+  }
+  for (Operation *consumer : usageInfo.consumers) {
+    if (isa<d2m::ShardDMAOpInterface>(consumer)) {
+      return true;
+    }
+  }
+  return false;
+}
+
 class D2MMarkSynchronizedBuffers
     : public impl::D2MMarkSynchronizedBuffersBase<D2MMarkSynchronizedBuffers> {
 public:
@@ -65,6 +79,17 @@ public:
       for (auto &[cb, usageInfo] : cbUsageInfo) {
         if (auto allocOp =
                 mlir::dyn_cast_or_null<memref::AllocOp>(cb.getDefiningOp())) {
+          // Synchronization is only required when a buffer crosses the
+          // compute/data-movement thread boundary. A buffer produced and
+          // consumed entirely by compute is fixed-address local storage, even
+          // when several compute ops use it (for example a loop-carried matmul
+          // accumulator consumed by untilize). Treating such storage as a
+          // stream inserts a wait for which no data-movement producer exists.
+          if (!hasDataMovementAccess(usageInfo)) {
+            allocOp->setAttr("d2m.scratch_buffer", rewriter.getUnitAttr());
+            continue;
+          }
+
           bool forceHoistedCB =
               utils::isReductionScalerBuffer(allocOp.getOperation());
           int32_t bufferCount = numStreamBuffers;
