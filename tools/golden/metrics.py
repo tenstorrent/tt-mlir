@@ -31,7 +31,7 @@ def get_atol_rtol(golden, calculated):
         cal_rtol = 0.0
     else:
         cal_atol = torch.max(torch.abs(golden - calculated)).item()
-        cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
+        cal_rtol = torch.max(torch.abs((golden - calculated) / golden)).item()
 
     return cal_atol, cal_rtol
 
@@ -94,24 +94,12 @@ def get_pcc(golden, calculated, atol, rtol):
             np.fill_diagonal(mask, 0)
             cal_pcc = np.min(cal_pcc[mask])
 
-            if isinstance(cal_pcc, np.ma.core.MaskedConstant):
-                return 1.0
+            if isinstance(cal_pcc, np.ma.core.MaskedConstant) or np.isnan(cal_pcc):
+                return float(torch.allclose(golden, calculated, atol=atol, rtol=rtol))
 
             return cal_pcc
 
-    if golden.numel() == 1 and golden.item() != 0:
-        cal_pcc = (
-            1.0
-            if torch.nn.functional.cosine_similarity(
-                golden.float().unsqueeze(0),
-                calculated.float().unsqueeze(0),
-                dim=0,
-            ).item()
-            else 0.0
-        )
-    else:
-        cal_pcc = _calculate_pcc(golden, calculated)
-
+    cal_pcc = _calculate_pcc(golden, calculated)
     return cal_pcc
 
 
