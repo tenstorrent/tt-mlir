@@ -11,7 +11,7 @@ endif()
 add_custom_target(pykernel-demo
     COMMENT "Running PyKernel demo tests"
     COMMAND pytest ${CMAKE_CURRENT_SOURCE_DIR}/test.py
-    DEPENDS pykernel)
+    DEPENDS TTPykernelModules)
 
 # Add info message for demo completion
 add_custom_command(
