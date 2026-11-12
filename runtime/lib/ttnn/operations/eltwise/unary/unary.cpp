@@ -132,6 +132,94 @@ static void runEltwiseUnaryWithFloatParameterOp(
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
+// Quasar binds no unary op family at all, so there is no quasar::relu or
+// quasar::sigmoid to substitute: the mainline unary path builds a
+// DataMovementKernel, whose constructor TT_FATALs there.
+//
+// Express the unary as a tensor-scalar add with the op fused as an LHS
+// activation. f(x) + 0 == f(x), adding 0.0f is exact in bf16, and both
+// tensor-scalar add and LHS activation fusion route onto Quasar's binary_ng
+// FPU kernel -- the path already proven by the Add case in binary.cpp.
+//
+// ANY UnaryOpType whose init/func pair resolves on Quasar can be carried this
+// way, which is why this is a helper rather than one inline lambda:
+// add_activation_defines() (quasar/binary_ng/device/binary_ng_utils.cpp) feeds
+// the type through unary::utils::get_op_init_and_func and emits the resulting
+// *_tile_init / *_tile pair into the compute kernel, PLUS the type's include
+// macro via update_macro_defines(); the Quasar compute kernels all #include
+// eltwise_unary/sfpu_split_includes.h, which turns that macro into the one
+// header carrying the pair, and honour the body through
+// PROCESS_<operand>_ACTIVATIONS (kernels/compute/eltwise_utils.hpp).
+//
+// Resolution, traced per type through get_macro_definition() and
+// sfpu_split_includes.h, and then to the Quasar LLK:
+//   RELU    SFPU_OP_RELU_FAMILY_INCLUDE   -> relu.h
+//   SIGMOID (default macro)               -> compute_kernel_api.h, where
+//           sigmoid_tile_init/sigmoid_tile each carry an ARCH_QUASAR arm
+//   SQRT    SFPU_OP_SQRT_INCLUDE          -> sqrt.h:17,34       (no guard)
+//   NEG     SFPU_OP_NEG_INCLUDE           -> negative.h:32      (no guard)
+//   SIN/COS SFPU_OP_TRIG_FAMILY_INCLUDE   -> trigonometry.h:18,35,48,65
+//                                            (no guard)
+// and each bottoms out in a real Quasar kernel: ckernel_sfpu_sqrt.h
+// calculate_sqrt/sqrt_init, ckernel_sfpu_negative.h _calculate_negative_,
+// ckernel_sfpu_trigonometry.h calculate_sine/sine_init, calculate_cosine/
+// cosine_init. (log_tile_init, by contrast, sits under #ifndef ARCH_QUASAR in
+// compute_kernel_api.h, which is why Softmax cannot be carried this way; the
+// same #ifndef removes power_tile, so neither can Pow.)
+//
+// The activation is built with NO parameters, so get_op_init_and_func() takes
+// its *default* arm (get_op_init_and_func_default) rather than the
+// parameterized one. That matters beyond style for SQRT: SQRT is in
+// is_parametrized_type(), and its parameterized arm emits
+// sqrt_tile<FAST_APPROX>, while Quasar's calculate_sqrt static_asserts
+// FAST_APPROX == false. The no-parameter default arm emits the plain
+// sqrt_tile(i) and is the only form that compiles -- and it is also exactly
+// what the mainline fast_and_approximate_mode=false case asks for.
+//
+// NEG IS DTYPE-RESTRICTED. get_op_init_and_func_default() emits
+// negative_tile_int32() when the input dtype is INT32, and negative_tile_int32
+// is #ifndef ARCH_QUASAR (negative.h:37) -- absent on Quasar even though the
+// LLK's _calculate_negative_int_ is present. Only the float arm is carried;
+// see the Neg case below. (int32 would in any case be refused by
+// matches_metal_v2_slice, which keeps every int32 binary on the descriptor
+// path because the Quasar DFB int32 compute returns all-zero/garbage tiles.)
+//
+// NUMERICS. f(x) + 0.0f is exact in IEEE-754 for every finite f(x): x + (+0)
+// returns x bit-for-bit, in bf16 and in fp32, with the single exception that
+// -0.0 + 0.0 == +0.0. The rewrite therefore cannot change a result except by
+// normalising a negative zero, which no pcc or top-1 comparison can see. What
+// the rewrite does NOT change, and does not claim to, is the accuracy of the
+// SFPU kernel itself: sqrt/sin/cos on Quasar are whatever those LLKs compute,
+// exactly as a native unary would be.
+//
+// A rewrite rather than a redirect, and deliberately a stopgap: folding the
+// activation into the producing conv/add belongs in the compiler's fusing
+// pass.
+static void runQuasarUnaryAsBinaryActivation(
+    const ::tt::target::ttnn::EltwiseUnaryOp *op, ProgramTensorPool &tensorPool,
+    ::ttnn::operations::unary::UnaryOpType activationType) {
+  runEltwiseUnaryOp(
+      op, tensorPool,
+      [activationType](
+          const ::ttnn::Tensor &in,
+          const std::optional<::ttnn::MemoryConfig> &memoryConfig,
+          const std::optional<::ttnn::Tensor> &optionalOutputTensor,
+          const std::optional<::ttnn::CoreRangeSet> &) {
+        using ::ttnn::operations::unary::EltwiseUnaryWithParam;
+        // Built with NO parameters on purpose: get_op_init_and_func() then
+        // takes its default arm, which for SIGMOID is
+        // sigmoid_tile_init(); sigmoid_tile(i) -- template-defaulted to
+        // VectorMode::RC and the accurate (non fast_and_approx) variant,
+        // i.e. what the mainline Sigmoid case below asks for explicitly.
+        const std::array<EltwiseUnaryWithParam, 1> activation{
+            EltwiseUnaryWithParam(activationType)};
+        return ::ttnn::operations::experimental::quasar::binary::add(
+            in, 0.0f, /*output_dtype=*/std::nullopt, memoryConfig,
+            optionalOutputTensor, /*post_activations=*/{},
+            /*lhs_activations=*/activation);
+      });
+}
+
 void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
@@ -147,7 +235,14 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Cos: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::cos);
+    // Same rewrite as Relu/Sigmoid; COS resolves to trigonometry.h:48,65,
+    // which has no ARCH_QUASAR guard.
+    if (utils::isQuasar()) {
+      runQuasarUnaryAsBinaryActivation(
+          op, tensorPool, ::ttnn::operations::unary::UnaryOpType::COS);
+    } else {
+      runEltwiseUnaryOp(op, tensorPool, ::ttnn::cos);
+    }
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Acos: {
@@ -174,37 +269,25 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Neg: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::neg);
+    // Same rewrite as Relu/Sigmoid, but FLOAT DTYPES ONLY. For an INT32 input
+    // get_op_init_and_func_default emits negative_tile_int32(), which is
+    // #ifndef ARCH_QUASAR (negative.h:37) and so does not exist on Quasar;
+    // carrying int32 here would turn a clean "unported kernel" abort into a
+    // kernel compile failure. int32 keeps the mainline path.
+    if (utils::isQuasar() &&
+        tensorPool.getTTNNTensorAndValidate(op->in()).dtype() !=
+            ::ttnn::DataType::INT32) {
+      runQuasarUnaryAsBinaryActivation(
+          op, tensorPool, ::ttnn::operations::unary::UnaryOpType::NEG);
+    } else {
+      runEltwiseUnaryOp(op, tensorPool, ::ttnn::neg);
+    }
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Relu: {
-    // Quasar binds no unary op family at all, so unlike add there is no
-    // quasar::relu to substitute: the mainline unary path builds a
-    // DataMovementKernel, whose constructor TT_FATALs there.
-    //
-    // Express relu as a tensor-scalar add with relu fused as an LHS
-    // activation. relu(x) + 0 == relu(x), adding 0.0f is exact in bf16, and
-    // both tensor-scalar add and LHS activation fusion route onto Quasar's
-    // binary_ng FPU kernel -- the path already proven by the Add case above.
-    //
-    // A rewrite rather than a redirect, and deliberately a stopgap: folding
-    // relu into the producing conv/add belongs in the compiler's fusing pass.
     if (utils::isQuasar()) {
-      runEltwiseUnaryOp(
-          op, tensorPool,
-          [](const ::ttnn::Tensor &in,
-             const std::optional<::ttnn::MemoryConfig> &memoryConfig,
-             const std::optional<::ttnn::Tensor> &optionalOutputTensor,
-             const std::optional<::ttnn::CoreRangeSet> &) {
-            using ::ttnn::operations::unary::EltwiseUnaryWithParam;
-            using ::ttnn::operations::unary::UnaryOpType;
-            const std::array<EltwiseUnaryWithParam, 1> reluActivation{
-                EltwiseUnaryWithParam(UnaryOpType::RELU)};
-            return ::ttnn::operations::experimental::quasar::binary::add(
-                in, 0.0f, /*output_dtype=*/std::nullopt, memoryConfig,
-                optionalOutputTensor, /*post_activations=*/{},
-                /*lhs_activations=*/reluActivation);
-          });
+      runQuasarUnaryAsBinaryActivation(
+          op, tensorPool, ::ttnn::operations::unary::UnaryOpType::RELU);
     } else {
       runEltwiseUnaryOp(op, tensorPool, ::ttnn::relu);
     }
@@ -219,7 +302,16 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sqrt: {
-    runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::sqrt);
+    // Same rewrite as Relu/Sigmoid. The no-parameter activation takes
+    // get_op_init_and_func's default arm, i.e. sqrt_tile_init(); sqrt_tile(i),
+    // which is the FAST_APPROX=false form the mainline call below also
+    // requests -- and the only form Quasar's calculate_sqrt accepts.
+    if (utils::isQuasar()) {
+      runQuasarUnaryAsBinaryActivation(
+          op, tensorPool, ::ttnn::operations::unary::UnaryOpType::SQRT);
+    } else {
+      runEltwiseUnaryWithFastAndApproximateModeOp(op, tensorPool, ::ttnn::sqrt);
+    }
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Rsqrt: {
@@ -227,7 +319,14 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sigmoid: {
-    runEltwiseUnarySigmoidOp(op, tensorPool, ::ttnn::sigmoid);
+    // Same rewrite as Relu: Quasar has no unary sigmoid, but SIGMOID is
+    // expressible as a fused LHS activation on the binary_ng FPU kernel.
+    if (utils::isQuasar()) {
+      runQuasarUnaryAsBinaryActivation(
+          op, tensorPool, ::ttnn::operations::unary::UnaryOpType::SIGMOID);
+    } else {
+      runEltwiseUnarySigmoidOp(op, tensorPool, ::ttnn::sigmoid);
+    }
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Silu: {
@@ -239,7 +338,14 @@ void run(const ::tt::target::ttnn::EltwiseUnaryOp *op,
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Sin: {
-    runEltwiseUnaryOp(op, tensorPool, ::ttnn::sin);
+    // Same rewrite as Relu/Sigmoid; SIN resolves to trigonometry.h:18,35,
+    // which has no ARCH_QUASAR guard.
+    if (utils::isQuasar()) {
+      runQuasarUnaryAsBinaryActivation(
+          op, tensorPool, ::ttnn::operations::unary::UnaryOpType::SIN);
+    } else {
+      runEltwiseUnaryOp(op, tensorPool, ::ttnn::sin);
+    }
     break;
   }
   case ::tt::target::ttnn::EltwiseUnaryOpType::Asin: {
