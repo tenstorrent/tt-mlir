@@ -249,9 +249,13 @@ void ProgramExecutor::execute() {
     runOpCallback(debug::Hooks::get().getPreOperatorCallback(),
                   executableHandle, op, context.get());
     runOperation(op);
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
+    // Guard removed locally (2026-09-21) so TT_RUNTIME_SYNC_AFTER_OP works without a
+    // TT_RUNTIME_DEBUG build. This is the decisive test of the race hypothesis: conv2d_011
+    // returns 0.0106..0.5376 across five forge runs while the identical call with forge's exact
+    // arguments is 0.999946 every time in pure ttnn. If forcing a device Synchronize after every
+    // op makes forge deterministic and correct, the defect is missing synchronisation between
+    // ops, not anything about conv2d. Still costs nothing unless the env var is set.
     syncAfterOpIfNeeded();
-#endif
 
     runOpCallback(debug::Hooks::get().getPostOperatorCallback(),
                   executableHandle, op, context.get());
@@ -833,7 +837,6 @@ void ProgramExecutor::readProfilerDataIfNeeded(bool force) {
 #endif
 }
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
 void ProgramExecutor::syncAfterOpIfNeeded() {
   static const bool enabled =
       std::getenv("TT_RUNTIME_SYNC_AFTER_OP") != nullptr;
@@ -842,6 +845,5 @@ void ProgramExecutor::syncAfterOpIfNeeded() {
                                              std::nullopt);
   }
 }
-#endif
 
 } // namespace tt::runtime::ttnn

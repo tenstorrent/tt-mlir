@@ -3,6 +3,9 @@
 // SPDX-License-Identifier: Apache-2.0
 
 #include "Constants.h"
+#include <sstream>
+#include <cstdlib>
+#include <cstdio>
 
 #include "operations/cpu/cpu.h"
 #include "tt-metalium/experimental/fabric/fabric.hpp"
@@ -162,11 +165,38 @@ createOwnedTTNNTensor(const void *data, const std::vector<std::uint32_t> &shape,
   }
 }
 
+static void qsrDumpBytes(const char *where, const ::ttnn::Tensor &t) {
+  if (std::getenv("QSR_DUMP_BYTES") == nullptr) { return; }
+  try {
+    const auto v = t.to_vector<float>();
+    std::ostringstream o;
+    o << "[BYTEDUMP] " << where << " n=" << v.size() << " bad-idx:";
+    for (size_t i = 0; i < v.size() && i <= 128; i += 32) { o << " [" << i << "]=" << v[i]; }
+    o << " | good-idx:";
+    for (size_t i = 1; i < v.size() && i <= 6; ++i) { o << " " << v[i]; }
+    std::printf("%s\n", o.str().c_str()); std::fflush(stdout);
+  } catch (const std::exception &e) {
+    std::printf("[BYTEDUMP] %s to_vector<float> failed: %s\n", where, e.what());
+    std::fflush(stdout);
+  }
+}
+
 static ::tt::runtime::Tensor
 toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
                    bool untilize, bool blocking) {
   const ::ttnn::Tensor &inputTensor = tensorWrapper.getTensor();
   bool shouldRetain = tensorWrapper.shouldRetain();
+  if (std::getenv("QSR_DUMP_BYTES") != nullptr) {
+    // [BYTEDUMP] ENTRY probe first, branch probes second. The previous version only patched the
+    // non-untilize from_device and logged nothing, because this function has three exits.
+    std::ostringstream o;
+    o << "[BYTEDUMP] toHost ENTRY logical=" << inputTensor.logical_shape()
+      << " padded=" << inputTensor.padded_shape()
+      << " layout=" << (int)inputTensor.layout()
+      << " storage=" << (int)inputTensor.storage_type()
+      << " untilize=" << (int)untilize << " blocking=" << (int)blocking;
+    std::printf("%s\n", o.str().c_str()); std::fflush(stdout);
+  }
 
   // If the tensor is on host, no event recording needed
   if (utils::isOnHost(inputTensor.storage_type())) {
@@ -211,6 +241,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
           ::ttnn::events::record_mesh_event(meshDevice, ::ttnn::QueueId{0});
     }
 
+    qsrDumpBytes("readback/untilizeOnDevice", hostTensor);
     return utils::createRuntimeTensorFromTTNN(hostTensor, meshEvent,
                                               shouldRetain);
   }
@@ -225,7 +256,7 @@ toHostSingleTensor(const ::tt::runtime::ttnn::TTNNTensorWrapper &tensorWrapper,
 
   ::ttnn::Tensor hostTensor =
       ::ttnn::from_device(inputTensor, /*blocking=*/blocking);
-
+  qsrDumpBytes("readback/plain", hostTensor);
   if (untilize) {
     hostTensor = ::ttnn::to_layout(hostTensor, ::ttnn::Layout::ROW_MAJOR,
                                    std::nullopt, std::nullopt);

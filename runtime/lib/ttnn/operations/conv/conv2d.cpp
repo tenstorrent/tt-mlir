@@ -2,6 +2,8 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdlib>
+#include <fstream>  // QSR_DUMP_CONVOUT
 #include "operations/conv/conv2d.h"
 #include "tt/runtime/detail/common/logger.h"
 #include "tt/runtime/detail/ttnn/operations/utils.h"
@@ -135,6 +137,33 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
 
   ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
+
+  // QSR_DUMP_CONVOUT: dump the device's FINAL conv output.
+  //
+  // Paired with QSR_DUMP_HALO and QSR_DUMP_W, this gives all three tensors from ONE run:
+  // the halo output, the prepared weights, and what the device actually produced. The host
+  // can then compute CPU(halo_out, weights) -- which reproduces the convolution at pcc
+  // 1.000000 -- and diff it against the device output element-wise.
+  //
+  // This needs NO model of what "correct" looks like: the CPU reconstruction IS the reference.
+  // Every earlier structural claim (fill fraction, window positions) rested on a model of
+  // expected values and each was falsified by a control. This one cannot be, because the
+  // reference is computed from the device's own inputs.
+  if (std::getenv("QSR_DUMP_CONVOUT") != nullptr) {
+    const char *dirEnv = std::getenv("QSR_DUMP_HALO_DIR");
+    const std::string dir = dirEnv ? dirEnv : "/tmp";
+    try {
+      auto v = out.to_vector<::bfloat16>();
+      const std::string path = dir + "/qsr_convout.u16";
+      std::ofstream f(path, std::ios::binary);
+      f.write(reinterpret_cast<const char *>(v.data()),
+              static_cast<std::streamsize>(v.size() * sizeof(::bfloat16)));
+      f.close();
+      LOG_INFO("QSR_CONVOUT_DUMP n=", v.size(), " path=", path);
+    } catch (const std::exception &e) {
+      LOG_INFO("QSR_CONVOUT_DUMP FAILED: ", e.what());
+    }
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }

@@ -80,8 +80,20 @@ void run(const ::tt::target::ttnn::MatmulOp *op, ProgramContext &context) {
   // graph asked for -- that would quietly change the schedule.
   ::ttnn::Tensor output;
   if (utils::isQuasar()) {
-    LOG_ASSERT(!matmulProgramConfig.has_value(),
-               "Quasar matmul cannot accept a mainline MatmulProgramConfig");
+    // Upstream's createMatmulProgramConfigIfNeeded started returning a config for shapes
+    // where it previously returned nullopt, so the old LOG_ASSERT here turned every
+    // Quasar matmul into a fatal. Dropping it is not a schedule change: Quasar ALWAYS
+    // overrode it with MatmulMultiCoreProgramConfig below (the types are unrelated and
+    // the mainline mcast path hangs on Quasar), so the mainline config was never honoured
+    // on this arch. Warn rather than assert, so the divergence stays visible.
+    if (matmulProgramConfig.has_value()) {
+      LOG_WARNING("Quasar matmul: ignoring a mainline MatmulProgramConfig; Quasar uses "
+                  "MatmulMultiCoreProgramConfig regardless (types are not convertible)");
+      matmulProgramConfig.reset();
+      if (op->activation()) {
+        activation = op->activation()->str();
+      }
+    }
     // Quasar must be handed an explicit program config. Letting it auto-select lands
     // on a multicast factory that tt-metal's own Quasar ResNet-50 test documents as
     // hanging ("The 2D-mcast matmul path currently HANGS on Quasar"), and passing
@@ -149,8 +161,17 @@ void run(const ::tt::target::ttnn::LinearOp *op, ProgramContext &context) {
   // the mainline path, which TT_FATALs on Quasar.
   ::ttnn::Tensor output;
   if (utils::isQuasar()) {
-    LOG_ASSERT(!programConfig.has_value(),
-               "Quasar linear cannot accept a mainline MatmulProgramConfig");
+    // Same reasoning as matmul() above: upstream now emits a config here, and Quasar
+    // never honoured it. Re-derive `activation` once the config is dropped, since the
+    // fused-activation check above consulted it.
+    if (programConfig.has_value()) {
+      LOG_WARNING("Quasar linear: ignoring a mainline MatmulProgramConfig; Quasar uses "
+                  "MatmulMultiCoreProgramConfig regardless (types are not convertible)");
+      programConfig.reset();
+      if (op->activation()) {
+        activation = op->activation()->str();
+      }
+    }
     // Quasar must be handed an explicit program config. Letting it auto-select lands
     // on a multicast factory that tt-metal's own Quasar ResNet-50 test documents as
     // hanging ("The 2D-mcast matmul path currently HANGS on Quasar"), and passing

@@ -79,12 +79,13 @@ private:
    */
   void readProfilerDataIfNeeded(bool force = false);
 
-#if defined(TT_RUNTIME_DEBUG) && TT_RUNTIME_DEBUG == 1
   /**
-   * Synchronizes all devices after each op when TT_RUNTIME_SYNC_AFTER_OP is set
+   * Synchronizes all devices after each op when TT_RUNTIME_SYNC_AFTER_OP is set.
+   * TT_RUNTIME_DEBUG guard removed locally (2026-09-21) so this can be used without a debug
+   * build -- it is the decisive test for the forge-side conv2d race. No cost unless the env
+   * var is set.
    */
   void syncAfterOpIfNeeded();
-#endif
 };
 
 } // namespace tt::runtime::ttnn
