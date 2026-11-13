@@ -31,6 +31,9 @@
 // Declares ttnn::pixel_unshuffle and ttnn::PixelUnshuffleChannelOrder, emitted
 // by the TTNNToEmitC PixelUnshuffleOpConversionPattern.
 #include "operations/data_movement/pixel_unshuffle/pixel_unshuffle.hpp"
+// Declares ttnn::pixel_shuffle, emitted by the TTNNToEmitC PixelShuffleOp
+// conversion.
+#include "operations/data_movement/pixel_shuffle/pixel_shuffle.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
 #include "operations/data_movement/repeat_interleave/repeat_interleave.hpp"
 #include "operations/data_movement/reshape_view/reshape.hpp"
@@ -121,6 +124,47 @@ std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
 // silently frees nothing.
 inline void util_release_vec(std::vector<ttnn::Tensor> &vec) { vec.clear(); }
 
+// Builds the tensor of a ttnn.constant from the values embedded in the
+// generated code, with the op's shape, dtype, layout, device and memory config.
+// The values are converted to `dtype` and padded to the tile layout by
+// Tensor::from_vector.
+template <typename T>
+inline ::ttnn::Tensor util_create_constant(
+    const std::vector<T> &values, const ::ttnn::Shape &shape,
+    ::ttnn::DataType dtype, ::ttnn::Layout layout,
+    std::optional<std::reference_wrapper<::ttnn::distributed::MeshDevice>>
+        device,
+    const ::ttnn::MemoryConfig &memoryConfig) {
+  ::tt::tt_metal::TensorSpec spec(
+      shape, ::tt::tt_metal::TensorLayout(
+                 dtype, ::tt::tt_metal::PageConfig(layout), memoryConfig));
+  return ::ttnn::Tensor::from_vector(values, spec,
+                                     device ? &device->get() : nullptr);
+}
+
+// Writes a host tensor into a device tensor (a trace input slot). When the two
+// have different logical shapes, the slot is a staging layout of the same
+// bytes (a host input with tiny row-major pages is staged with larger pages and
+// re-paged by a reshape inside the trace), so the host bytes are written
+// straight into the slot: the tensor-based copy would derive the slot's page
+// layout from the host tensor. The flatbuffer runtime does the same (see
+// runtime/lib/ttnn/operations/data_movement/write_tensor.cpp).
+inline void util_write_tensor(const ttnn::Tensor &host, ttnn::Tensor dst,
+                              ttnn::QueueId cq) {
+  if (host.logical_shape() != dst.logical_shape()) {
+    const auto host_buffer = host.host_tensor().buffer().get_shard(
+        ::tt::tt_metal::distributed::MeshCoordinate(0, 0));
+    TT_FATAL(host_buffer.has_value(), "Host tensor has no shard at (0, 0)");
+    auto bytes = host_buffer->view_bytes();
+    TT_FATAL(bytes.size() == dst.tensor_spec().compute_packed_buffer_size_bytes(),
+             "Host bytes ({}) do not match the trace input slot size", bytes.size());
+    ttnn::copy_to_device(dst.device()->mesh_command_queue(*cq), bytes.data(),
+                         dst, std::nullopt);
+    return;
+  }
+  ttnn::copy_to_device(host, dst, cq);
+}
+
 // Copies one call's input into the trace input slot the traced program reads
 // from. A trace replays against the slots captured on its first run, so new
 // data only reaches it if it is written into those slots first; the flatbuffer
@@ -134,9 +178,9 @@ inline void util_refresh_trace_input(const ttnn::Tensor &src,
                                      ttnn::Tensor dst) {
   if (src.storage_type() == ttnn::StorageType::DEVICE) {
     ttnn::Tensor host_src = ttnn::from_device(src);
-    ttnn::copy_to_device(host_src, dst);
+    util_write_tensor(host_src, dst, ttnn::QueueId(0));
   } else {
-    ttnn::copy_to_device(src, dst);
+    util_write_tensor(src, dst, ttnn::QueueId(0));
   }
 }
 

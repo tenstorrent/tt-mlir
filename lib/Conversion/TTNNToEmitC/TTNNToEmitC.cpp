@@ -8,6 +8,7 @@
 #include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/IR/Utils.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
+#include "ttmlir/Dialect/TTNN/Interfaces/TTNNTensorSpecInterface.h"
 #include "ttmlir/Dialect/TTNN/Types/Types.h"
 #include "ttmlir/Dialect/TTNN/Utils/Utils.h"
 
@@ -423,6 +424,26 @@ public:
         emitter.emit(srcOp.getDtypeAttr()),
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
+
+    // A fused post-activation is passed to tt-metal the same way the flatbuffer
+    // runtime does: output = nullopt, then the post_activations span.
+    if (auto act =
+            srcOp->template getAttrOfType<mlir::tt::ttnn::UnaryWithParamAttr>(
+                "post_activation")) {
+      std::string code =
+          "::std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam>{"
+          "::ttnn::operations::unary::EltwiseUnaryWithParam(" +
+          ttnn_to_emitc::convert(act.getOpType());
+      if (!act.getParams().empty()) {
+        code += ", " +
+                ttnn_to_emitc::EmitCTypeConverter<std::vector<float>>::convert(
+                    act.getParams());
+      }
+      code += ")}";
+      args.push_back(emitter.emit(std::nullopt));
+      args.push_back(
+          emitc::OpaqueAttr::get(rewriter.getContext(), std::move(code)));
+    }
 
     emitter.replaceOp(*this, args);
 
@@ -1114,7 +1135,12 @@ public:
         emitter.emit(srcOp.getAlignCorners()),
         emitter.emit(srcOp.getUsePrecomputedGrid()),
         emitter.emit(srcOp.getBatchOutputChannels()),
-        emitter.emit(srcOp.getMemoryConfigAttr()),
+        // Without an explicit memory_config the flatbuffer runtime falls back to
+        // the result type's memory config, and the kernel requires a height
+        // sharded output for a 5-D grid; passing nullopt would be rejected.
+        emitter.emit(srcOp.getMemoryConfigAttr()
+                         ? srcOp.getMemoryConfigAttr()
+                         : mlir::tt::ttnn::getMemoryConfigFromResult(srcOp)),
     };
 
     emitter.replaceOp(*this, args);
@@ -2648,6 +2674,65 @@ private:
     llvm::SmallVector<mlir::Attribute> args{
         emitter.emit(srcOp.getShape()),
         emitter.emit(fillValue),
+        emitter.emit(srcOp.getDtypeAttr()),
+        emitter.emit(srcOp.getLayoutAttr().getValue()),
+        emitter.emit<::ttnn::operations::creation::detail::OptionalMeshDevice>(
+            srcOp.getDevice()),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+    };
+
+    emitter.replaceOp(*this, args);
+
+    return success();
+  }
+};
+} // namespace
+
+// Constant op conversion pattern
+//
+// The default pattern would emit a call that carries only the device operand,
+// but the values of a constant live in its attribute. They are embedded into
+// the call as a std::vector and the tensor is built by util_create_constant
+// (tools/ttnn-standalone/ttnn-precompiled.hpp) with the op's shape, dtype,
+// layout, device and memory config, like the flatbuffer runtime does.
+//
+namespace {
+class ConstantOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<mlir::tt::ttnn::ConstantOp> {
+private:
+  std::string getPrefixSearchPattern() const override {
+    return mlir::tt::ttnn::ConstantOp::getOperationName().str();
+  }
+  std::string getPrefixSwapPattern() const override {
+    return "util_create_constant";
+  }
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::ConstantOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::ConstantOp srcOp, OpAdaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::ConstantOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    mlir::Attribute values;
+    if (mlir::isa<mlir::DenseFPElementsAttr>(srcOp.getValue())) {
+      values = emitter.emit<std::vector<float>>(srcOp.getValue());
+    } else if (mlir::isa<mlir::DenseIntElementsAttr>(srcOp.getValue())) {
+      values = emitter.emit<std::vector<int32_t>>(srcOp.getValue());
+    } else {
+      return rewriter.notifyMatchFailure(
+          srcOp, "only dense floating point and integer constants are lowered");
+    }
+
+    auto shapeAttr = mlir::tt::ttnn::ShapeAttr::get(
+        rewriter.getContext(), srcOp.getResult().getType().getShape());
+
+    llvm::SmallVector<mlir::Attribute> args{
+        values,
+        emitter.emit(shapeAttr),
         emitter.emit(srcOp.getDtypeAttr()),
         emitter.emit(srcOp.getLayoutAttr().getValue()),
         emitter.emit<::ttnn::operations::creation::detail::OptionalMeshDevice>(
@@ -5178,7 +5263,7 @@ private:
     return mlir::tt::ttnn::WriteTensorOp::getOperationName().str();
   }
   std::string getPrefixSwapPattern() const override {
-    return "ttnn::copy_to_device";
+    return "util_write_tensor";
   }
 
 public:
@@ -5996,7 +6081,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
                NamedFullOpConversionPattern<mlir::tt::ttnn::OnesOp>,
                FullOpConversionPattern,
                ArangeOpConversionPattern,
-               DefaultOpConversionPattern<mlir::tt::ttnn::ConstantOp>,
+               ConstantOpConversionPattern,
                RandOpConversionPattern,
                AssignOpConversionPattern>(typeConverter, ctx);
   // clang-format on

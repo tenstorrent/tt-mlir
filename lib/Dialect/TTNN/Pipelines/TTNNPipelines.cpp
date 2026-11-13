@@ -766,7 +766,8 @@ void createTTNNCommonToEmitCPipeline(
     pm.addPass(createTTNNDumpModule(dumpOptions));
   }
 
-  pm.addPass(createTTNNUnfuseBinaryActivation());
+  // Binary ops keep their fused post_activation: the EmitC lowering passes it
+  // to the binary op like the flatbuffer runtime does.
   pm.addPass(createConvertTTNNToEmitCPass());
 }
 
