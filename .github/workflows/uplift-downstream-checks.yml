@@ -1,0 +1,121 @@
+# Starts the downstream checks in tt-xla and tt-forge-onnx for the uplift PR.
+#
+# ITSEC-354, OSPO-1242: this job was "downstream-checks" in on-pr.yml. It used a
+# stored token, which was deleted. It now runs after the "On PR" run of the
+# uplift PR succeeds, and uses a short-lived token from OSPO Vault that can only
+# start workflows in one target repository. Vault gives that token only to a
+# workflow_run job on main.
+#
+# A workflow_run job always runs this file as it is on main, also when the
+# triggering run came from a fork. So the job checks the triggering run first:
+# event pull_request, conclusion success, same repository (no fork), branch
+# uplift. It never checks out or runs code from the PR. It passes only the PR
+# head commit id to the downstream workflows, as before.
+
+name: Uplift downstream checks
+
+on:
+  workflow_run:
+    workflows: ["On PR"]
+    types: [completed]
+    branches: [uplift]
+
+permissions: {}
+
+jobs:
+  downstream-checks:
+    if: >-
+      github.event_name == 'workflow_run' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.workflow_run.event == 'pull_request' &&
+      github.event.workflow_run.conclusion == 'success' &&
+      github.event.workflow_run.head_repository.full_name == github.repository &&
+      github.event.workflow_run.head_branch == 'uplift'
+    runs-on: ubuntu-latest
+    permissions:
+      id-token: write # OSPO Vault sign-in only
+    strategy:
+      matrix:
+        projects: [
+          { name: "tenstorrent/tt-forge-onnx", workflow-name: "on-pr.yml" },
+          { name: "tenstorrent/tt-xla", workflow-name: "manual-test.yml" },
+          { name: "tenstorrent/tt-xla", workflow-name: "manual-benchmark.yml" },
+          { name: "tenstorrent/tt-xla", workflow-name: "manual-test-tools.yml" }
+        ]
+    env:
+      VAULT_URL: https://vault-ospo.eng-svc.aws.tenstorrent.com
+      TARGET_REPO: ${{ matrix.projects.name }}
+      WORKFLOW_NAME: ${{ matrix.projects.workflow-name }}
+      # The token of the target repository only: dispatch-tt-xla or dispatch-tt-forge-onnx.
+      VAULT_TOKEN_NAME: ${{ matrix.projects.name == 'tenstorrent/tt-xla' && 'dispatch-tt-xla' || 'dispatch-tt-forge-onnx' }}
+    steps:
+      # Role tenstorrent--tt-mlir--downstream: refs/heads/main, event workflow_run.
+      # Each leg reads only the token of its own target repository
+      # (Actions write on that one repository, valid about one hour).
+      - name: Join tailnet (OSPO Vault)
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
+        with:
+          oauth-client-id: ${{ vars.TS_VAULT_OSPO_CLIENT_ID }}
+          audience: ${{ vars.TS_VAULT_OSPO_AUDIENCE }}
+          tags: tag:tt-gha-vault-ospo
+
+      - name: Wait for Vault
+        run: |
+          set -euo pipefail
+          for _ in 1 2 3 4 5 6; do
+            curl -fsS --max-time 5 "${VAULT_URL}/v1/sys/health?standbyok=true&uninitcode=204&sealedcode=204" >/dev/null && exit 0
+            sleep 2
+          done
+          echo "Vault ${VAULT_URL} did not become reachable over Tailscale" >&2
+          exit 1
+
+      - name: Get a token to start ${{ env.TARGET_REPO }} workflows
+        id: vault
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+        with:
+          url: ${{ env.VAULT_URL }}
+          method: jwt
+          path: jwt-github
+          role: tenstorrent--tt-mlir--downstream
+          jwtGithubAudience: ${{ env.VAULT_URL }}
+          exportEnv: false
+          secrets: |
+            github/token/tenstorrent--tt-mlir--${{ env.VAULT_TOKEN_NAME }} token | DISPATCH_TOKEN
+
+      - name: Trigger ${{ env.TARGET_REPO }} tests
+        shell: bash
+        env:
+          GH_TOKEN: ${{ steps.vault.outputs.DISPATCH_TOKEN }}
+          MLIR_SHA: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+          if [[ ! "$MLIR_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "::error::Unexpected head commit id: $MLIR_SHA"
+            exit 1
+          fi
+          if [[ "$TARGET_REPO" == "tenstorrent/tt-xla" && "$WORKFLOW_NAME" == "manual-test.yml" ]]; then
+            gh workflow run "$WORKFLOW_NAME" \
+              --repo "$TARGET_REPO" --ref main \
+              --raw-field mlir_override="$MLIR_SHA" \
+              --raw-field test_suite=full-mlir-uplift-qualification.json
+
+          elif [[ "$TARGET_REPO" == "tenstorrent/tt-xla" && "$WORKFLOW_NAME" == "manual-benchmark.yml" ]]; then
+            # Perf benchmark in tt-xla/tt-forge against uplifted tt-mlir + tt-metal
+            gh workflow run "$WORKFLOW_NAME" \
+              --repo "$TARGET_REPO" --ref main \
+              --raw-field mlir_override="$MLIR_SHA" \
+              --raw-field sh-runner=false
+
+          else
+            gh workflow run "$WORKFLOW_NAME" \
+              --repo "$TARGET_REPO" --ref main \
+              --raw-field mlir_override="$MLIR_SHA"
+          fi
+          gh run list --workflow="$WORKFLOW_NAME" --repo "$TARGET_REPO" --branch main --limit 1
+          echo "Triggered $TARGET_REPO with tt-mlir $MLIR_SHA"
+          echo "### Triggered [$TARGET_REPO](https://github.com/$TARGET_REPO/actions/workflows/$WORKFLOW_NAME) with tt-mlir $MLIR_SHA :rocket:" >> "$GITHUB_STEP_SUMMARY"
+
+      # Last use of the token is above. Leaving the tailnet cuts this job off from Vault.
+      - name: Leave tailnet
+        if: ${{ always() }}
+        run: sudo tailscale logout || { echo "::warning::tailscale logout failed; taking the interface down"; sudo tailscale down || true; }

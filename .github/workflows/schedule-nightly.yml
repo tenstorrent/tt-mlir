@@ -6,6 +6,9 @@ on:
     - cron: '0 4 * * *'  # Runs at 04:00 UTC every day
 
 permissions:
+  # actions: read lets call-test.yml (job test-summary) read this run's
+  # artifacts and job logs with the built-in token.
+  actions: read
   checks: write
   packages: write
   contents: write

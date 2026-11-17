@@ -18,10 +18,17 @@ permissions:
 jobs:
   update_test_durations:
     runs-on: ubuntu-latest
+    permissions:
+      actions: read
+      contents: read
+      id-token: write # OSPO Vault sign-in only
+    env:
+      VAULT_URL: https://vault-ospo.eng-svc.aws.tenstorrent.com
     steps:
       - uses: actions/checkout@v6
         with:
           fetch-depth: 0
+          persist-credentials: false
           # ref: main
       - uses: actions/setup-python@v6
         with:
@@ -39,7 +46,7 @@ jobs:
             local num=5
 
             # get json of the last $num workflow runs
-            gh run list --workflow $wf_name -R $repo -b main -L $num --status completed --json attempt,conclusion,databaseId >runs.json
+            gh run list --workflow $wf_name -R $repo -b main -e push -L $num --status completed --json attempt,conclusion,databaseId >runs.json
 
             counter=0
             while true; do
@@ -82,8 +89,55 @@ jobs:
 
           echo "TODAY=$(date +'%Y-%m-%d')" >> "$GITHUB_OUTPUT"
 
+      # ITSEC-354: the PR is pushed and opened with a short-lived token from
+      # OSPO Vault (contents and pull requests on tt-mlir only, valid about one
+      # hour). It is given only to scheduled runs on main.
+      # This job does not approve or merge. A person reviews and merges the PR.
+      - name: Manual run, no PR opened
+        if: ${{ !(github.event_name == 'schedule' && github.ref == 'refs/heads/main') }}
+        run: |
+          set -euo pipefail
+          msg="The token that opens the test durations PR is given to scheduled runs on main only (ITSEC-354)."
+          msg="$msg No PR was opened. A person can open it by hand, or ask OSPO in a ticket to allow manual runs."
+          echo "::notice title=Durations PR not opened::$msg"
+          echo "$msg" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Join tailnet (OSPO Vault)
+        if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
+        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
+        with:
+          oauth-client-id: ${{ vars.TS_VAULT_OSPO_CLIENT_ID }}
+          audience: ${{ vars.TS_VAULT_OSPO_AUDIENCE }}
+          tags: tag:tt-gha-vault-ospo
+
+      - name: Wait for Vault
+        if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
+        run: |
+          set -euo pipefail
+          for _ in 1 2 3 4 5 6; do
+            curl -fsS --max-time 5 "${VAULT_URL}/v1/sys/health?standbyok=true&uninitcode=204&sealedcode=204" >/dev/null && exit 0
+            sleep 2
+          done
+          echo "Vault ${VAULT_URL} did not become reachable over Tailscale" >&2
+          exit 1
+
+      - name: Get a token to open the PR
+        if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
+        id: vault
+        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+        with:
+          url: ${{ env.VAULT_URL }}
+          method: jwt
+          path: jwt-github
+          role: tenstorrent--tt-mlir--main
+          jwtGithubAudience: ${{ env.VAULT_URL }}
+          exportEnv: false
+          secrets: |
+            github/token/tenstorrent--tt-mlir--self-pr token | SELF_PR_TOKEN
+
       - name: Create Pull Request
-        uses: peter-evans/create-pull-request@v8
+        if: ${{ github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
+        uses: peter-evans/create-pull-request@3ffccacd46053766916f087ce41d627c0b8cf2d1 # v8.1.3
         id: create-pr
         with:
           branch: test-durations-update
@@ -95,22 +149,15 @@ jobs:
           body: "This PR updates test durations based on latest push (${{ steps.get-test-durations.outputs.curr_push_wf_link }})"
           labels: tooling
           delete-branch: true
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ steps.vault.outputs.SELF_PR_TOKEN }}
 
-      - name: Enable Pull Request Automerge
-        if: ${{ steps.create-pr.outputs.pull-request-number }}
-        run: gh pr merge --squash --auto "${{ steps.create-pr.outputs.pull-request-number }}"
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+      # Last use of the token is above. Leaving the tailnet cuts this job off from Vault.
+      - name: Leave tailnet
+        if: ${{ always() && github.event_name == 'schedule' && github.ref == 'refs/heads/main' }}
+        run: sudo tailscale logout || { echo "::warning::tailscale logout failed; taking the interface down"; sudo tailscale down || true; }
 
-      - name: Approve Pull Request
-        if: ${{ steps.create-pr.outputs.pull-request-number }}
-        env:
-          GITHUB_TOKEN: ${{ secrets.GH_APPROVE_TOKEN }}
-        run: |
-          echo "Pull Request Number - ${{ steps.create-pr.outputs.pull-request-number }}"
-          echo "Pull Request URL - ${{ steps.create-pr.outputs.pull-request-url }}"
-          gh pr review ${{ steps.create-pr.outputs.pull-request-number }} --approve
+      # No auto-merge and no approve step (ITSEC-354): this job does not approve
+      # or merge. A person reviews and merges the durations PR.
 
       - name: Generate Summary
         run: |
