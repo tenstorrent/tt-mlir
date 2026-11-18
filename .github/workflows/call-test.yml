@@ -103,7 +103,7 @@ jobs:
       shell: bash
       run: |
         source env/activate
-        if [ "${{ matrix.build.runs-on }}" == "builder" ]; then
+        if [ "${{ matrix.build.runs-on }}" == "builder" ] || [ "${{ matrix.build.runs-on }}" == "large" ]; then
           echo "Running on builder, skipping system descriptor generation"
         else
           ttrt query --save-artifacts
