@@ -97,17 +97,9 @@ jobs:
       - name: Decide on build runner
         id: decide-runner
         run: |
-          sh_builder=false
-          if [[ "${{ inputs.builder_build }}" == "true" ]]; then
-              # Only use builder runner for uplift jobs
-              # REF: https://github.com/tenstorrent/tt-mlir/pull/5114/files/480d8b9216ab7b578d07d500d9fc16f448135f75#r2405470436
-              echo "runner=builder" >> "$GITHUB_OUTPUT"
-              echo runner="builder"
-            else
-              echo "runner=tt-ubuntu-2204-large-stable" >> "$GITHUB_OUTPUT"
-              echo runner="tt-ubuntu-2204-large-stable"
-              sh_builder=true
-          fi
+          echo "runner=tt-ubuntu-2204-large-stable" >> "$GITHUB_OUTPUT"
+          echo runner="tt-ubuntu-2204-large-stable"
+          sh_builder=true
           echo "sh_builder=$sh_builder" >> "$GITHUB_OUTPUT"
           echo sh_builder=$sh_builder
 
