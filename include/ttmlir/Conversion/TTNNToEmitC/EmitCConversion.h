@@ -613,6 +613,24 @@ struct EmitCTypeConverter<::ttnn::types::ShardOrientation> {
   }
 };
 
+// Converts from the MLIR enum rather than going through
+// TypeName<::ttnn::PixelUnshuffleChannelOrder>: that C++ enum is declared in
+// ttnn/operations/data_movement/pixel_unshuffle/pixel_unshuffle.hpp, which is
+// not included here, so the type cannot be named as a template argument.
+template <>
+struct EmitCTypeConverter<::mlir::tt::ttnn::PixelUnshuffleChannelOrder> {
+  static std::string
+  convert(::mlir::tt::ttnn::PixelUnshuffleChannelOrder order) {
+    switch (order) {
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ChannelMajor:
+      return "::ttnn::PixelUnshuffleChannelOrder::CHANNEL_MAJOR";
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::SpatialMajor:
+      return "::ttnn::PixelUnshuffleChannelOrder::SPATIAL_MAJOR";
+    }
+    llvm_unreachable("Unknown ttnn::PixelUnshuffleChannelOrder");
+  }
+};
+
 template <>
 struct EmitCTypeConverter<::ttnn::DataType> {
   static std::optional<std::string> convert(mlir::Attribute attr) {
@@ -2001,6 +2019,21 @@ static constexpr bool IsMLIRTypeV = IsMLIRType<T>::value;
 // Name for the function that creates a std::vector from a variadic number of
 // `ttnn::Tensor`s.
 inline constexpr const char *kCreateVectorFunctionName = "util_create_vec";
+
+// Name for the function that copies a call's input into the trace input slot
+// the traced program reads from (defined in ttnn-precompiled.hpp).
+inline constexpr const char *kRefreshTraceInputFunctionName =
+    "util_refresh_trace_input";
+
+// Discardable attribute (DenseBoolArrayAttr, one entry per `inputs` operand)
+// that ConvertTTNNToEmitCPass stamps on every ttnn.capture_or_execute_trace
+// before running the conversion: true where the operand is a runtime input,
+// i.e. the capture callee declares it `ttcore.argument_type<input>`. It has to
+// be computed up front because FuncOpConversionPattern strips argument
+// attributes from every func.func, in no guaranteed order relative to the
+// trace lowering that needs them.
+inline constexpr const char *kTraceRuntimeInputsAttrName =
+    "ttnn.emitc_trace_runtime_inputs";
 
 // Name for the function that gets a scalar (uint32_t) from a `ttnn::Tensor`.
 inline constexpr const char *kGetScalarFromTensorFunctionName =
