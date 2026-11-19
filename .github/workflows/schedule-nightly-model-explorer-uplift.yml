@@ -17,7 +17,6 @@ jobs:
 
     env:
       MODEL_EXPLORER_PATH: tools/explorer
-      VAULT_URL: https://vault-ospo.eng-svc.aws.tenstorrent.com
 
     steps:
       - uses: actions/checkout@v5
@@ -75,44 +74,15 @@ jobs:
           echo "::notice title=Uplift PR not opened::$msg"
           echo "$msg" >> "$GITHUB_STEP_SUMMARY"
 
-      - name: Join tailnet (OSPO Vault)
-        if: >-
-          ${{ env.VERSION_CHANGED == 'true' && github.event_name == 'schedule' &&
-          github.ref == 'refs/heads/main' }}
-        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
-        with:
-          oauth-client-id: ${{ vars.TS_VAULT_OSPO_CLIENT_ID }}
-          audience: ${{ vars.TS_VAULT_OSPO_AUDIENCE }}
-          tags: tag:tt-gha-vault-ospo
-
-      - name: Wait for Vault
-        if: >-
-          ${{ env.VERSION_CHANGED == 'true' && github.event_name == 'schedule' &&
-          github.ref == 'refs/heads/main' }}
-        run: |
-          set -euo pipefail
-          for _ in 1 2 3 4 5 6; do
-            curl -fsS --max-time 5 "${VAULT_URL}/v1/sys/health?standbyok=true&uninitcode=204&sealedcode=204" >/dev/null && exit 0
-            sleep 2
-          done
-          echo "Vault ${VAULT_URL} did not become reachable over Tailscale" >&2
-          exit 1
-
       - name: Get a token to open the PR
         if: >-
           ${{ env.VERSION_CHANGED == 'true' && github.event_name == 'schedule' &&
           github.ref == 'refs/heads/main' }}
         id: vault
-        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+        uses: tenstorrent/.github/actions/vault-secrets@a697f1bb22ad8b488b0ac63f9a261e462179fe13 # vault-secrets-v1.0.0
         with:
-          url: ${{ env.VAULT_URL }}
-          method: jwt
-          path: jwt-github
           role: tenstorrent--tt-mlir--main
-          jwtGithubAudience: ${{ env.VAULT_URL }}
-          exportEnv: false
-          secrets: |
-            github/token/tenstorrent--tt-mlir--self-pr token | SELF_PR_TOKEN
+          github-token: tenstorrent--tt-mlir--self-pr
 
       - name: Create Pull Request
         if: >-
@@ -130,7 +100,7 @@ jobs:
           body: "This PR uplifts the model-explorer version in ${{ env.MODEL_EXPLORER_PATH }} to the latest commit ${{ env.LATEST_MODEL_EXPLORER_VERSION }} from previous version ${{ env.CURRENT_MODEL_EXPLORER_VERSION }}"
           labels: uplift
           delete-branch: true
-          token: ${{ steps.vault.outputs.SELF_PR_TOKEN }}
+          token: ${{ steps.vault.outputs.token }}
 
       # Last use of the token is above. Leaving the tailnet cuts this job off from Vault.
       - name: Leave tailnet

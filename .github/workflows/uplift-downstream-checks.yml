@@ -43,7 +43,6 @@ jobs:
           { name: "tenstorrent/tt-xla", workflow-name: "manual-test-tools.yml" }
         ]
     env:
-      VAULT_URL: https://vault-ospo.eng-svc.aws.tenstorrent.com
       TARGET_REPO: ${{ matrix.projects.name }}
       WORKFLOW_NAME: ${{ matrix.projects.workflow-name }}
       # The token of the target repository only: dispatch-tt-xla or dispatch-tt-forge-onnx.
@@ -52,40 +51,17 @@ jobs:
       # Role tenstorrent--tt-mlir--downstream: refs/heads/main, event workflow_run.
       # Each leg reads only the token of its own target repository
       # (Actions write on that one repository, valid about one hour).
-      - name: Join tailnet (OSPO Vault)
-        uses: tailscale/github-action@064b10558093f38325e838ddea35486bdc6b1d5c # v4.4.0
-        with:
-          oauth-client-id: ${{ vars.TS_VAULT_OSPO_CLIENT_ID }}
-          audience: ${{ vars.TS_VAULT_OSPO_AUDIENCE }}
-          tags: tag:tt-gha-vault-ospo
-
-      - name: Wait for Vault
-        run: |
-          set -euo pipefail
-          for _ in 1 2 3 4 5 6; do
-            curl -fsS --max-time 5 "${VAULT_URL}/v1/sys/health?standbyok=true&uninitcode=204&sealedcode=204" >/dev/null && exit 0
-            sleep 2
-          done
-          echo "Vault ${VAULT_URL} did not become reachable over Tailscale" >&2
-          exit 1
-
       - name: Get a token to start ${{ env.TARGET_REPO }} workflows
         id: vault
-        uses: hashicorp/vault-action@892a26828f195e65540a40b4768ae4571f51ebfc # v4.0.0
+        uses: tenstorrent/.github/actions/vault-secrets@a697f1bb22ad8b488b0ac63f9a261e462179fe13 # vault-secrets-v1.0.0
         with:
-          url: ${{ env.VAULT_URL }}
-          method: jwt
-          path: jwt-github
           role: tenstorrent--tt-mlir--downstream
-          jwtGithubAudience: ${{ env.VAULT_URL }}
-          exportEnv: false
-          secrets: |
-            github/token/tenstorrent--tt-mlir--${{ env.VAULT_TOKEN_NAME }} token | DISPATCH_TOKEN
+          github-token: tenstorrent--tt-mlir--${{ env.VAULT_TOKEN_NAME }}
 
       - name: Trigger ${{ env.TARGET_REPO }} tests
         shell: bash
         env:
-          GH_TOKEN: ${{ steps.vault.outputs.DISPATCH_TOKEN }}
+          GH_TOKEN: ${{ steps.vault.outputs.token }}
           MLIR_SHA: ${{ github.event.workflow_run.head_sha }}
         run: |
           set -euo pipefail
