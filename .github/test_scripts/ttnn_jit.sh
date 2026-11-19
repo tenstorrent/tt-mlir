@@ -35,7 +35,7 @@ else
     if [[ "$RUNS_ON" == "n300-llmbox" ]]; then
         # only run multichip tests and matmul smoketests for llmbox
         pytest -v $WORK_DIR/test/ttnn-jit/test_mesh_tensor_eltwise.py $WORK_DIR/test/ttnn-jit/test_matmul_smoketest.py --junit-xml=$TEST_REPORT_PATH
-    elif [[ "$RUNS_ON" == "p150b" ]]; then
+    elif [[ "$RUNS_ON" == "p150" || "$RUNS_ON" == "p150b" ]]; then
         pytest -v $WORK_DIR/test/ttnn-jit/test_matmul_smoketest.py --junit-xml=$TEST_REPORT_PATH
     else
         # Only run tests in the top level directory. These are always run.
