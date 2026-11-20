@@ -39,6 +39,11 @@ jobs:
 
     runs-on: ${{ matrix.build.sh-run && format('tt-ubuntu-2204-{0}-stable', matrix.build.runs-on) || fromJson(format('["{0}", "in-service"]', matrix.build.runs-on)) }}
 
+    env:
+      # Blackhole firmware >= 19.12 auto-enables DRAM programmable cores in tt-metal, which breaks
+      # OpModel constraint queries (vector::_M_range_check on the DRAM core type).
+      TT_METAL_ENABLE_BLACKHOLE_DRAM_PROGRAMMABLE_CORES: "0"
+
     container:
       image: ${{ matrix.build.sh-run && format('harbor.ci.tenstorrent.net/{0}', inputs.docker_image) || inputs.docker_image }}
       options: ${{ matrix.build.no-device && ' ' || '--device /dev/tenstorrent' }}
