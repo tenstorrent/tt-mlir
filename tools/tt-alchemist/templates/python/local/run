@@ -1,4 +1,4 @@
-#!/bin/bash
+#!/usr/bin/env bash
 
 # Parse command line arguments
 TRACY_MODE=false
