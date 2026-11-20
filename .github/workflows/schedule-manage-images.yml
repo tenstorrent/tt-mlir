@@ -11,11 +11,15 @@ jobs:
   delete-package-versions:
     name: Delete package versions older than 4 weeks
     runs-on: ubuntu-latest
+    # Built-in token (ITSEC-354). It can delete versions only of packages that
+    # give this repository the Admin role. Check that before enabling this workflow.
+    permissions:
+      packages: write
     steps:
       - uses: snok/container-retention-policy@v3.0.0
         with:
           account: tenstorrent
-          token: ${{ secrets.GH_TOKEN }}
+          token: ${{ github.token }}
           image-names: "tt-mlir*ci* tt-mlir*ird*"
           cut-off: 4w
           keep-n-most-recent: 5

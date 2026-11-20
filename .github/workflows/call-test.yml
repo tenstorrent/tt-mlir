@@ -157,7 +157,7 @@ jobs:
     - name: Run Tests
       shell: bash
       env:
-        GH_TOKEN: ${{ secrets.GH_TOKEN || github.token}}
+        GH_TOKEN: ${{ github.token }}
         TTRT_LOGGER_LEVEL: "WARNING"
         LOGURU_LEVEL: "ERROR"
         TT_METAL_LOGGER_LEVEL: "FATAL"
@@ -252,6 +252,13 @@ jobs:
     runs-on: ubuntu-latest
     needs: run-tests
     if: success() || failure()
+    # actions: read for this run's artifacts and job logs (get_test_summary.sh);
+    # checks: write for the consolidated test report; contents: read for checkout.
+    # Every workflow that calls this file must grant actions: read.
+    permissions:
+      actions: read
+      checks: write
+      contents: read
     outputs:
       failed-test-summary: ${{ steps.test-summary.outputs.failed-test-summary }}
     steps:
@@ -261,7 +268,7 @@ jobs:
         continue-on-error: true
         shell: bash
         env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           .github/scripts/bash/get_test_summary.sh ${{ github.run_id }} true
           cat _summary.md >> $GITHUB_STEP_SUMMARY

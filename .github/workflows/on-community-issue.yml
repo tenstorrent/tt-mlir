@@ -34,17 +34,16 @@ jobs:
             echo "EVENT_URL=https://github.com/${{ github.repository }}/commit/${{ github.sha }}" >> $GITHUB_OUTPUT
             echo "EVENT_TYPE=push" >> $GITHUB_OUTPUT
           fi
-      - name: Check if organization member
+      # ITSEC-354: the org member check used a stored token, which was deleted.
+      # The check is off until a replacement is agreed. is_member=unknown skips
+      # the community label and the Slack message, so no org member is labeled
+      # or reported as a community member by mistake.
+      - name: Check if organization member (off, see comment)
         id: is_organization_member
         run: |
-          http_status=$(curl -o /dev/null -s -w '%{http_code}' -H "Authorization: Bearer ${{ secrets.ORG_READ_GITHUB_TOKEN }}" https://api.github.com/orgs/tenstorrent/members/${{ steps.set-variables.outputs.USERNAME }})
-          if [ "$http_status" -eq 204 ]; then
-            echo "Detected org member"
-            echo "is_member=true" >> $GITHUB_OUTPUT
-          else
-            echo "Detected community member"
-            echo "is_member=false" >> $GITHUB_OUTPUT
-          fi
+          set -euo pipefail
+          echo "::notice title=Org member check is off::No community label and no Slack message (ITSEC-354)."
+          echo "is_member=unknown" >> "$GITHUB_OUTPUT"
       - name: Add community label
         if: ${{ steps.is_organization_member.outputs.is_member == 'false' && steps.set-variables.outputs.GH_COMMAND && steps.set-variables.outputs.NUMBER }}
         run: |
