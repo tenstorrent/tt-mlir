@@ -62,6 +62,10 @@ public:
         if (!isa<ttnn::ToLayoutOp>(op)) {
           return;
         }
+        // Already a single tt-metal op: leave it as is.
+        if (isInPlaceShardedUntilize(mlir::cast<ttnn::ToLayoutOp>(op))) {
+          return;
+        }
         opsToReplace.push_back(op);
       });
     });
@@ -194,6 +198,23 @@ private:
     }
     // Pure typecast / memory move: typecast in place, memory config last.
     return true;
+  }
+
+  // A TILE -> ROW_MAJOR to_layout that keeps the input's L1 shards: same
+  // sharding, grid, cores and (tile-padded) shard shape, no dtype change.
+  // tt-metal untilizes such a tensor shard by shard on its own cores
+  // (UntilizeWithUnpadding, sharded -> sharded); the generic decomposition
+  // would de-shard it to interleaved first and re-shard afterwards.
+  bool isInPlaceShardedUntilize(ttnn::ToLayoutOp op) const {
+    auto [input, output] = getInputOutputLayouts(op);
+    return input.isTiled() && !output.isTiled() &&
+           !hasDtypeChange(input, output) &&
+           input.hasShardedL1TensorMemoryLayout() &&
+           output.hasShardedL1TensorMemoryLayout() &&
+           input.getMemLayout() == output.getMemLayout() &&
+           input.getGridShape() == output.getGridShape() &&
+           input.getCoreRangeSet() == output.getCoreRangeSet() &&
+           input.getScalarShardShape() == output.getScalarShardShape();
   }
 
   //===--------------------------------------------------------------------===//
