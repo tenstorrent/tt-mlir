@@ -6,11 +6,12 @@ on:
     branches: [ "main" ]
 
 permissions:
+  # actions: read lets call-test.yml (job test-summary) read this run's
+  # artifacts and job logs with the built-in token.
+  actions: read
   checks: write
   packages: write
   contents: read
-  pages: write
-  id-token: write
 
 jobs:
   pre-commit:
@@ -60,22 +61,27 @@ jobs:
     needs: test
     runs-on: ubuntu-latest
     if: success() && github.ref == 'refs/heads/main'
+    permissions: {}
     steps:
-      - name: Set test durations
+      # ITSEC-354: this step wrote the repository variable test_durations with a
+      # stored token, which was deleted. No token may write repository variables,
+      # so the step is skipped and the variable keeps its last value. The
+      # durations of this run are still in its "test-durations-*" artifacts.
+      # Follow-up for the owners: keep the durations as an artifact or a cache
+      # entry and read them from there in call-prepare-run.yml.
+      - name: Set test durations (skipped, see comment)
         shell: bash
-        env:
-          GH_TOKEN: ${{ secrets.GH_TOKEN }}
         run: |
-          echo "This is main branch, getting test durations"
-          rm -rf _test_durations_d
-          rm -rf _test_durations
-          gh run download ${{ github.run_id }} --repo tenstorrent/tt-mlir --pattern "test-durations*" --dir _test_durations_d
-          find _test_durations_d -name "_test_duration" -exec cat {} + > _test_durations
-          gh variable set test_durations --body "$(cat _test_durations)" --repo tenstorrent/tt-mlir
-          rm -rf _test_durations*
+          set -euo pipefail
+          echo "::notice title=Test durations not saved::test_durations is not updated (ITSEC-354). Owners: store durations as an artifact or cache entry."
   docs:
     if: github.ref == 'refs/heads/main'
     needs: build-image
+    # pages and id-token only for the docs deploy, not for every job (ITSEC-354).
+    permissions:
+      contents: read
+      pages: write
+      id-token: write
     uses: ./.github/workflows/call-build-docs.yml
     secrets: inherit
     with:
