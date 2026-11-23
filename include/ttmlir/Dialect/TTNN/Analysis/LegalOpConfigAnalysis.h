@@ -57,7 +57,11 @@ struct Conv2dConfigSearchSpaceFactory {
     // 0 is best (allows max ntiles based on input). Must be multiple of 32.
     // Between non-zero values, prefer larger (less restrictive).
     // Ordered by preference: 0 (best), 64, 32.
-    searchSpace.actBlockHOverride = {0, 64, 32};
+    // P3: larger act_block_h raises perf directly (bigger CBs, fewer reader
+    // passes) and is a precondition for activation reuse, which requires
+    // act_block_h_ntiles > output_width_ntiles. The op model prunes any
+    // candidate that does not fit L1, so offering larger values is safe.
+    searchSpace.actBlockHOverride = {0, 256, 128, 64, 32};
 
     searchSpace.deallocateActivation = {true};
 
