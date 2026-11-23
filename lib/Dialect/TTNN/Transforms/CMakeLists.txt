@@ -82,6 +82,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNMemoryManagement.cpp
         TTNNToCpp.cpp
         TTNNToPython.cpp
+        TTNNPixelUnshuffleChannelsLast.cpp
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
         TTNNWeightDtypeConversion.cpp

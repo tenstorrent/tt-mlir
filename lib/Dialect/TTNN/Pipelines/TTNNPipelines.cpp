@@ -75,6 +75,16 @@ void createTTNNPipelineTTIRPasses(
   // Propagate per-arg weight_dtype annotations through TM ops to consumers.
   pm.addPass(mlir::tt::ttir::createTTIRPropagateWeightDtype());
 
+  // Space-to-depth packing for a narrow-channel stride-2 stem conv (e.g. a
+  // 7x7/s2 conv on a 3-channel image): a channels_last pixel_unshuffle(2)
+  // feeding a stride-1 conv, so there is no NCHW->NHWC permute (and no C->32
+  // tile padding), no DRAM copy and no activation slicing.
+  // Must run after TTIRFusing has folded the NCHW->NHWC transposes into a
+  // single permute, and before FlattenSlidingWindow rewrites conv activations.
+  if (options.enableStridedConvSpaceToDepthOpt) {
+    pm.addPass(mlir::tt::ttir::createTTIRStridedConvSpaceToDepthOpt());
+  }
+
   // Flattening sliding window ops for compatibility with conversion to TTNN
   pm.addPass(mlir::tt::ttir::createTTIRFlattenSlidingWindow());
 
@@ -523,6 +533,15 @@ void createTTIRToTTNNCommonPipeline(
         // previously.
         devicePm.addPass(mlir::createCanonicalizerPass());
       }
+    }
+
+    // Space-to-depth stem: now that the optimizer has fixed the stem conv's
+    // sharding, place the channels_last pixel_unshuffle on that shard grid as
+    // the conv's row-major input, drop the layout ops between them, tune the
+    // stem convs' blocking and rebuild an NHWC -> NCHW output tail. Before
+    // trace hoisting, which only needs the final layouts.
+    if (options.enableStridedConvSpaceToDepthOpt) {
+      devicePm.addPass(createTTNNPixelUnshuffleChannelsLast());
     }
 
     // Bind distributed-op semaphores after the optimizer (core range derives

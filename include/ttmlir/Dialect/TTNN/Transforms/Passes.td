@@ -14,6 +14,43 @@ def TTNNDeallocate: Pass<"ttnn-deallocate", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNPixelUnshuffleChannelsLast: Pass<"ttnn-pixel-unshuffle-channels-last", "::mlir::ModuleOp"> {
+  let summary = "Place a channels_last pixel_unshuffle on its conv2d's height-shard grid "
+                "and tune the space-to-depth stem around it.";
+  let description = [{
+    Second half of the space-to-depth stem (the first half is
+    TTIRStridedConvSpaceToDepthOpt). ttnn::pixel_unshuffle in channels_last
+    form only writes into a ROW_MAJOR HEIGHT_SHARDED L1 tensor, and the layout
+    passes would tilize and re-shard its result before the conv. After the
+    optimizer has fixed the consumer conv2d's height sharding, for each
+    `ttnn.pixel_unshuffle {channels_last}` this pass
+
+    1. gives it (and the flattening reshape, a view) that grid as a ROW_MAJOR
+       HEIGHT_SHARDED L1 layout, shard [pixels / cores, padded_channels], and
+       feeds the conv the reshape directly, erasing the layout ops between;
+    2. sets the conv2d blocking for that input on the stem conv: act_block_h
+       = one output row when it is tile aligned and divides the per-core rows,
+       double-buffered activations, no halo re-allocation;
+    3. gives a following stride-1 conv over the same pixels (TILE input,
+       kernel taller than one row) full_inner_dim, so the whole kh x kw window
+       is one inner-dim block and the fp32 partial sums are not spilled to L1
+       per kernel row, with the largest act_block_h whose double-buffered
+       activation block fits a fixed L1 budget; otherwise the same blocking
+       as the stem conv;
+    4. rebuilds an NHWC -> NCHW output tail of the last such conv
+         reshape [N,H,W,C] -> permute [0,3,1,2] -> layout ops -> return
+       as transpose(2,3) on the conv's shards -> in-place sharded untilize ->
+       row-major transpose(1,2) into the output memory, so the function
+       returns ROW_MAJOR without a tile permute, a DRAM copy or an untilize
+       on readback.
+
+    When the consumer conv is not height-sharded over the same pixels (for
+    example with the optimizer off), the pixel_unshuffle is height-sharded on
+    the device's worker grid instead and converted to the layout its users
+    expect, so the graph stays valid.
+  }];
+}
+
 def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   let summary = "Decompose ToLayoutOps to more granular memory ops.";
   let description = [{

@@ -594,6 +594,22 @@ struct TTIRToTTNNCommonPipelineOptions
     }
   }
 
+  // Space-to-depth rewrite for narrow-channel stride-2 stem convolutions:
+  // TTIRStridedConvSpaceToDepthOpt turns the conv into a channels_last
+  // pixel_unshuffle(2) + stride-1 conv, and TTNNPixelUnshuffleChannelsLast
+  // places pixel_unshuffle on the conv's height-shard grid, tunes the blocking
+  // of the stem convs and rebuilds an NHWC -> NCHW output tail row by row.
+  // Defaulted OFF here: it changes the emitted graph, so it is opt-in until
+  // validated per model. Forge4 defaults it on.
+  Option<bool> enableStridedConvSpaceToDepthOpt{
+      *this, "enable-strided-conv-space-to-depth-opt",
+      llvm::cl::desc("Rewrite narrow-channel stride-2 stem conv2d as a "
+                     "channels_last pixel_unshuffle(2) feeding a stride-1 "
+                     "conv2d with rearranged weights, placed on the conv's "
+                     "height-shard grid (removes the input permute, its C->32 "
+                     "tile padding, the tilize and the reshards)."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.

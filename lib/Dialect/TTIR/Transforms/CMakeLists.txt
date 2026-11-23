@@ -16,6 +16,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         InferKVCacheArgumentTypes.cpp
         PropagateWeightDtype.cpp
         MoveReshapeToConstant.cpp
+        StridedConvSpaceToDepthOpt.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
         ReductionForceKeepDim.cpp
