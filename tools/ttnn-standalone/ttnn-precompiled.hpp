@@ -21,6 +21,9 @@
 #include "operations/data_movement/moe_expert_token_remap/moe_expert_token_remap.hpp"
 #include "operations/data_movement/pad/pad.hpp"
 #include "operations/data_movement/permute/permute.hpp"
+// Declares ttnn::pixel_unshuffle and ttnn::PixelUnshuffleChannelOrder, emitted
+// by the TTNNToEmitC PixelUnshuffleOpConversionPattern (S2D rewrite).
+#include "operations/data_movement/pixel_unshuffle/pixel_unshuffle.hpp"
 #include "operations/data_movement/repeat/repeat.hpp"
 #include "operations/data_movement/repeat_interleave/repeat_interleave.hpp"
 #include "operations/data_movement/reshape_view/reshape.hpp"

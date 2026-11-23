@@ -8979,4 +8979,65 @@ foldSplatComparison(mlir::Operation *op, mlir::Attribute lhsAttr,
   return success();
 }
 
+//===----------------------------------------------------------------------===//
+// PixelUnshuffleOp
+//===----------------------------------------------------------------------===//
+
+::mlir::LogicalResult mlir::tt::ttir::PixelUnshuffleOp::verify() {
+  ::mlir::RankedTensorType inputType = getInput().getType();
+  ::mlir::RankedTensorType outputType = getType();
+  if (inputType.getRank() != 4) {
+    return emitOpError("input must be 4D [N,C,H,W], got rank ")
+           << inputType.getRank();
+  }
+  if (outputType.getRank() != 4) {
+    return emitOpError("output must be 4D, got rank ") << outputType.getRank();
+  }
+  uint32_t r = getDownscaleFactor();
+  if (r == 0) {
+    return emitOpError("downscale_factor must be positive");
+  }
+  llvm::ArrayRef<int64_t> inShape = inputType.getShape();
+  llvm::ArrayRef<int64_t> outShape = outputType.getShape();
+  const int64_t rr = static_cast<int64_t>(r) * static_cast<int64_t>(r);
+  const bool channelsLast = getChannelsLast();
+  if (getPaddedChannels() && !channelsLast) {
+    return emitOpError("padded_channels requires channels_last = true");
+  }
+
+  // Expected output, NCHW [N, C*r^2, H/r, W/r] or, with channels_last,
+  // NHWC [N, H/r, W/r, Cp] where Cp = padded_channels (default C*r^2).
+  const int64_t kDyn = ::mlir::ShapedType::kDynamic;
+  auto scaled = [&](int64_t d, bool mul) -> int64_t {
+    if (d == kDyn) {
+      return kDyn;
+    }
+    return mul ? d * rr : d / static_cast<int64_t>(r);
+  };
+  const int64_t packedC = scaled(inShape[1], /*mul=*/true);
+  int64_t outC = packedC;
+  if (channelsLast && getPaddedChannels()) {
+    outC = static_cast<int64_t>(*getPaddedChannels());
+    if (packedC != kDyn && outC < packedC) {
+      return emitOpError("padded_channels=") << outC << " < C*r^2=" << packedC;
+    }
+  }
+  llvm::SmallVector<int64_t, 4> expected =
+      channelsLast
+          ? llvm::SmallVector<int64_t, 4>{inShape[0], scaled(inShape[2], false),
+                                          scaled(inShape[3], false), outC}
+          : llvm::SmallVector<int64_t, 4>{inShape[0], outC,
+                                          scaled(inShape[2], false),
+                                          scaled(inShape[3], false)};
+  for (unsigned i = 0; i < 4; ++i) {
+    if (expected[i] != kDyn && outShape[i] != kDyn &&
+        expected[i] != outShape[i]) {
+      return emitOpError("output dim ")
+             << i << " is " << outShape[i] << ", expected " << expected[i]
+             << (channelsLast ? " (channels_last NHWC)" : " (NCHW)");
+    }
+  }
+  return ::mlir::success();
+}
+
 } // namespace mlir::tt::ttir

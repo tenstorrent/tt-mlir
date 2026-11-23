@@ -613,6 +613,24 @@ struct EmitCTypeConverter<::ttnn::types::ShardOrientation> {
   }
 };
 
+// Converts from the MLIR enum rather than going through
+// TypeName<::ttnn::PixelUnshuffleChannelOrder>: that C++ enum is declared in
+// ttnn/operations/data_movement/pixel_unshuffle/pixel_unshuffle.hpp, which is
+// not included here, so the type cannot be named as a template argument.
+template <>
+struct EmitCTypeConverter<::mlir::tt::ttnn::PixelUnshuffleChannelOrder> {
+  static std::string
+  convert(::mlir::tt::ttnn::PixelUnshuffleChannelOrder order) {
+    switch (order) {
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ChannelMajor:
+      return "::ttnn::PixelUnshuffleChannelOrder::CHANNEL_MAJOR";
+    case ::mlir::tt::ttnn::PixelUnshuffleChannelOrder::SpatialMajor:
+      return "::ttnn::PixelUnshuffleChannelOrder::SPATIAL_MAJOR";
+    }
+    llvm_unreachable("Unknown ttnn::PixelUnshuffleChannelOrder");
+  }
+};
+
 template <>
 struct EmitCTypeConverter<::ttnn::DataType> {
   static std::optional<std::string> convert(mlir::Attribute attr) {

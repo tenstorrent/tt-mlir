@@ -1415,4 +1415,8 @@ def TTNN_MeshComposerConfigAttr : TTNN_Attr<"MeshComposerConfig", "mesh_composer
 }
 
 
+def TTNN_PixelUnshuffleChannelOrderAttr : EnumAttr<TTNN_Dialect, TTNN_PixelUnshuffleChannelOrder, "pixel_unshuffle_channel_order"> {
+  let assemblyFormat = "`<` $value `>`";
+}
+
 #endif  // TTMLIR_TTMLIR_DIALECT_TTNN_TTNNOPSATTRS_TD

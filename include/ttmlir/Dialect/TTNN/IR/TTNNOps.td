@@ -4468,4 +4468,32 @@ def TTNN_AllocateMoeComputeSemaphoreOp : TTNN_Op<"allocate_moe_compute_semaphore
     let results = (outs TTNN_GlobalSemaphore:$result);
 }
 
+def TTNN_PixelUnshuffleOp : TTNN_Op<"pixel_unshuffle"> {
+    let summary = "Pixel unshuffle (space-to-depth) with selectable channel ordering and memory config.";
+
+    let description = [{
+      Rearranges elements from [N, C, H, W] to [N, C*r^2, H/r, W/r] where
+      r = downscale_factor. Calls ttnn::pixel_unshuffle internally.
+
+      channel_order controls sub-pixel interleaving (see ttir.pixel_unshuffle).
+      memory_config controls output placement; absent means DRAM interleaved,
+      ROW_MAJOR.
+
+      channels_last = true emits NHWC [N, H/r, W/r, padded_channels],
+      ROW_MAJOR, with the padding channels zero-filled. ttnn requires the
+      output to be HEIGHT_SHARDED in L1 with shard width padded_channels.
+    }];
+
+    let arguments = (ins AnyRankedTensor:$input,
+                         UI32Attr:$downscale_factor,
+                         DefaultValuedAttr<TTNN_PixelUnshuffleChannelOrderAttr, "::mlir::tt::ttnn::PixelUnshuffleChannelOrder::ChannelMajor">:$channel_order,
+                         OptionalAttr<TTNN_MemoryConfigAttr>:$memory_config,
+                         DefaultValuedAttr<BoolAttr, "false">:$channels_last,
+                         OptionalAttr<UI32Attr>:$padded_channels);
+
+    let results = (outs AnyRankedTensor:$result);
+
+    let hasVerifier = 1;
+}
+
 #endif

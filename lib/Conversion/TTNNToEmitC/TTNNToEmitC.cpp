@@ -4093,6 +4093,63 @@ public:
 };
 } // namespace
 
+// PixelUnshuffleOp conversion pattern
+//
+// Emits ::ttnn::pixel_unshuffle(input, downscale_factor, memory_config,
+//                               output_layout, channel_order, channels_last,
+//                               padded_channels).
+// Produced by the ttir-strided-conv-space-to-depth-opt (S2D) rewrite.
+//
+namespace {
+class PixelUnshuffleOpConversionPattern
+    : public TTNNToEmitCBaseOpConversionPattern<
+          mlir::tt::ttnn::PixelUnshuffleOp> {
+
+public:
+  using TTNNToEmitCBaseOpConversionPattern<
+      mlir::tt::ttnn::PixelUnshuffleOp>::TTNNToEmitCBaseOpConversionPattern;
+
+  LogicalResult
+  matchAndRewrite(mlir::tt::ttnn::PixelUnshuffleOp srcOp,
+                  mlir::tt::ttnn::PixelUnshuffleOp::Adaptor adaptor,
+                  ConversionPatternRewriter &rewriter) const override {
+
+    ttnn_to_emitc::EmitCTTNNEmitter<mlir::tt::ttnn::PixelUnshuffleOp> emitter(
+        srcOp, adaptor, rewriter);
+
+    // The op has no output-layout attribute, so pass the layout of the result
+    // type explicitly. ttnn::pixel_unshuffle returns ROW_MAJOR unless told
+    // otherwise, while the result type is usually tiled. The flatbuffer runtime
+    // derives output_layout from the result's tile shape
+    // (runtime/lib/ttnn/operations/data_movement/pixel_unshuffle.cpp); EmitC
+    // emits the raw call with no such step, so leaving it at the default would
+    // propagate a ROW_MAJOR tensor where the IR declares a tiled one.
+    mlir::RankedTensorType resultType =
+        mlir::cast<mlir::RankedTensorType>(srcOp.getResult().getType());
+    auto resultLayoutAttr =
+        mlir::cast<mlir::tt::ttnn::TTNNLayoutAttr>(resultType.getEncoding());
+    mlir::tt::ttnn::LayoutAttr outputLayoutAttr =
+        mlir::tt::ttnn::LayoutAttr::get(srcOp.getContext(),
+                                        resultLayoutAttr.isTiled()
+                                            ? mlir::tt::ttnn::Layout::Tile
+                                            : mlir::tt::ttnn::Layout::RowMajor);
+
+    llvm::SmallVector<mlir::Attribute> args{
+        emitter.emit(srcOp.getInput()),
+        emitter.emit(static_cast<uint32_t>(srcOp.getDownscaleFactor())),
+        emitter.emit(srcOp.getMemoryConfigAttr()),
+        emitter.emit(outputLayoutAttr),
+        emitter.emit(srcOp.getChannelOrder()),
+        emitter.emit(srcOp.getChannelsLast()),
+        emitter.emit(srcOp.getPaddedChannels()),
+    };
+
+    emitter.replaceOp(*this, args);
+    return success();
+  }
+};
+} // namespace
+
 // PermuteOp conversion pattern
 //
 namespace {
@@ -5663,6 +5720,7 @@ void populateTTNNToEmitCPatterns(mlir::MLIRContext *ctx,
            RepeatInterleaveOpConversionPattern, SliceStaticOpConversionPattern,
            SliceDynamicOpConversionPattern, SortOpConversionPattern,
            PermuteOpConversionPattern, PadOpConversionPattern,
+           PixelUnshuffleOpConversionPattern,
            TTNNToEmitCTopKOpConversionPattern,
            TTNNToEmitCSamplingOpConversionPattern, GatherOpConversionPattern>(
           typeConverter, ctx);
