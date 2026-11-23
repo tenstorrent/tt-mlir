@@ -4985,6 +4985,8 @@ public:
         global_output_m_<suffix> = std::get<n+2+m>(v);
         ret_0 = global_output_0_<suffix>; ... ret_m = global_output_m_<suffix>;
       } else {
+        // Only for operands that are runtime inputs (see below).
+        util_refresh_trace_input(input_k, global_input_k_<suffix>); ...
         execute_callee(trace_id_<suffix>);
         ret_0 = global_output_0_<suffix>; ... ret_m = global_output_m_<suffix>;
       }
@@ -5165,6 +5167,49 @@ public:
     {
       Block &elseBlock = ifOp.getElseRegion().getBlocks().front();
       rewriter.setInsertionPointToStart(&elseBlock);
+
+      // Refresh the trace input slots before replaying. The capture callee
+      // writes each runtime input into a device slot (ttnn.write_tensor) and
+      // the captured trace reads from those slots, so without this every
+      // replay recomputes the first call's input. The flatbuffer runtime does
+      // the same copy before each replay, skipping operands whose version did
+      // not change (capture_or_execute_trace.cpp).
+      //
+      // EmitC has no tensor versions, so the operands are classified
+      // statically: only `ttcore.argument_type<input>` operands of the capture
+      // callee are refreshed. Parameters and constants are identical on every
+      // call -- and they are the bulk of the operands (e.g. 154 of 155,
+      // passed in as host tensors) -- so copying them per frame would only add
+      // transfers. ConvertTTNNToEmitCPass computes the classification before
+      // the conversion and stamps it on the op (kTraceRuntimeInputsAttrName),
+      // because FuncOpConversionPattern may already have stripped the callee's
+      // argument attributes by the time this pattern runs. Without the stamp
+      // (pattern used outside that pass) every operand is refreshed, which is
+      // correct but slower; util_refresh_trace_input is a no-op for an operand
+      // that has no device slot.
+      {
+        auto runtimeInputs = srcOp->getAttrOfType<mlir::DenseBoolArrayAttr>(
+            ttnn_to_emitc::kTraceRuntimeInputsAttrName);
+        auto isRuntimeInput = [&](size_t i) -> bool {
+          if (runtimeInputs &&
+              i < static_cast<size_t>(runtimeInputs.size())) {
+            return runtimeInputs[i];
+          }
+          return true;
+        };
+
+        for (size_t i = 0; i < traceInputVariable.size(); ++i) {
+          if (!isRuntimeInput(i)) {
+            continue;
+          }
+          rewriter.create<emitc::CallOpaqueOp>(
+              loc, TypeRange{}, ttnn_to_emitc::kRefreshTraceInputFunctionName,
+              /*args=*/nullptr, /*template_args=*/nullptr,
+              ValueRange{block->getArgument(i),
+                         loadGlobalVariable(rewriter, loc,
+                                            traceInputVariable[i])});
+        }
+      }
 
       // execute_callee(trace_id);
       rewriter.create<emitc::CallOpaqueOp>(

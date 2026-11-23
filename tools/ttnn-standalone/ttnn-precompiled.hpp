@@ -107,6 +107,35 @@ std::vector<ttnn::Tensor> util_create_vec(T &&...t) {
   return std::vector<ttnn::Tensor>{std::forward<T>(t)...};
 }
 
+// Copies one call's input into the trace input slot the traced program reads
+// from. A trace replays against the slots written on its first (capture) call,
+// so a later call's data only reaches the trace if it is copied into those
+// slots before the replay. The flatbuffer runtime does the same before every
+// replay (runtime/lib/ttnn/operations/trace/capture_or_execute_trace.cpp).
+//
+// - host src   : host -> device write into the slot, the same call the
+//                capture path uses for ttnn.write_tensor.
+// - device src : the slot is refreshed through the host (rare: a caller that
+//                passes a device-resident input).
+// - host dst   : the operand was passed into the trace as a host tensor, i.e.
+//                there is no device slot to refresh; nothing to do.
+//
+// `dst` is taken by value on purpose: a ttnn::Tensor is a handle onto the
+// device buffer, so the write still lands in the slot, and the call can be
+// emitted with a loaded value (emitc.call_opaque does not take lvalues).
+inline void util_refresh_trace_input(const ttnn::Tensor &src,
+                                     ttnn::Tensor dst) {
+  if (dst.storage_type() != ::tt::tt_metal::StorageType::DEVICE) {
+    return;
+  }
+  if (src.storage_type() == ::tt::tt_metal::StorageType::DEVICE) {
+    ::tt::tt_metal::copy_to_device(ttnn::from_device(src), dst,
+                                   ttnn::QueueId(0));
+    return;
+  }
+  ::tt::tt_metal::copy_to_device(src, dst, ttnn::QueueId(0));
+}
+
 namespace ttnn {
 
 // DeviceGetter class

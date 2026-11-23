@@ -6,6 +6,7 @@
 
 #include "ttmlir/Conversion/TTNNToEmitC/EmitCConversion.h"
 #include "ttmlir/Dialect/TTCore/IR/TTCore.h"
+#include "ttmlir/Dialect/TTCore/IR/TTCoreOps.h"
 #include "ttmlir/Dialect/TTCore/Transforms/Passes.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNN.h"
 #include "ttmlir/Dialect/TTNN/IR/TTNNOps.h"
@@ -18,6 +19,8 @@
 #include "mlir/IR/BuiltinOps.h"
 #include "mlir/IR/BuiltinTypes.h"
 #include "mlir/IR/MLIRContext.h"
+#include "mlir/IR/SymbolTable.h"
+#include "mlir/Interfaces/FunctionInterfaces.h"
 #include "mlir/Pass/PassManager.h"
 #include "mlir/Support/LogicalResult.h"
 #include "mlir/Transforms/DialectConversion.h"
@@ -98,6 +101,39 @@ struct ConvertTTNNToEmitCPass
       builder.create<emitc::IncludeOp>(module.getLoc(), "ttnn-precompiled.hpp",
                                        /*isStandard=*/false);
     }
+
+    // Record which trace operands are runtime inputs while the capture
+    // callees still carry their `ttcore.argument_type` argument attributes:
+    // FuncOpConversionPattern strips argument attributes during the conversion
+    // below, and nothing orders it after the CaptureOrExecuteTraceOp lowering
+    // that needs them (see kTraceRuntimeInputsAttrName).
+    //
+    module.walk([&](mlir::tt::ttnn::CaptureOrExecuteTraceOp traceOp) {
+      auto callee =
+          mlir::SymbolTable::lookupNearestSymbolFrom<mlir::FunctionOpInterface>(
+              traceOp, traceOp.getCaptureCalleeAttr());
+      llvm::SmallVector<bool> runtimeInputs;
+      for (auto [i, operand] : llvm::enumerate(traceOp.getInputs())) {
+        ttcore::ArgumentTypeAttr argType =
+            (callee && i < callee.getNumArguments())
+                ? callee.getArgAttrOfType<ttcore::ArgumentTypeAttr>(
+                      i, ttcore::ArgumentTypeAttr::name)
+                : nullptr;
+        if (argType) {
+          runtimeInputs.push_back(argType.getValue() ==
+                                  ttcore::ArgumentType::Input);
+          continue;
+        }
+        // No argument type: treat it as a runtime input unless it is a
+        // const-eval result. util_refresh_trace_input is a no-op for an
+        // operand without a device slot, so erring this way stays correct.
+        mlir::Operation *def = operand.getDefiningOp();
+        runtimeInputs.push_back(!(def && mlir::isa<ttcore::LoadCachedOp>(def)));
+      }
+      traceOp->setAttr(ttnn_to_emitc::kTraceRuntimeInputsAttrName,
+                       mlir::DenseBoolArrayAttr::get(&getContext(),
+                                                     runtimeInputs));
+    });
 
     // TTNN -> EmitC
     //
