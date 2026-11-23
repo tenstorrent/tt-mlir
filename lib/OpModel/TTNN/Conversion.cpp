@@ -538,6 +538,10 @@ getConv2dConfig(const std::optional<Conv2dConfigAttr> &conv2dConfig) {
         conv2dConfig->getConfigTensorsInDram().getValue();
   }
 
+  if (conv2dConfig->getFullInnerDim()) {
+    config.full_inner_dim = conv2dConfig->getFullInnerDim().getValue();
+  }
+
   return config;
 }
 

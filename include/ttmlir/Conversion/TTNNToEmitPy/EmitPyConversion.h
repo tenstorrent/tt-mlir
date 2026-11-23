@@ -1552,6 +1552,11 @@ struct EmitPyTypeConverter<::ttnn::operations::conv::conv2d::Conv2dConfig> {
                  attr.getEnableWeightsDoubleBuffer());
       firstElement = false;
     }
+    if (attr.getFullInnerDim()) {
+      rso << (firstElement ? "" : ", ") << "full_inner_dim="
+          << EmitPyTypeConverter<bool>::convert(attr.getFullInnerDim());
+      firstElement = false;
+    }
     if (attr.getEnableKernelStrideFolding()) {
       rso << (firstElement ? "" : ", ") << "enable_kernel_stride_folding="
           << EmitPyTypeConverter<bool>::convert(

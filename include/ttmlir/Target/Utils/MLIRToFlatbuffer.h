@@ -828,7 +828,8 @@ toFlatbuffer(FlatbufferObjectCache &cache, ttnn::Conv2dConfigAttr config) {
       toFlatbuffer(cache, config.getEnableActDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableWeightsDoubleBuffer()),
       toFlatbuffer(cache, config.getEnableKernelStrideFolding()),
-      toFlatbuffer(cache, config.getConfigTensorsInDram()));
+      toFlatbuffer(cache, config.getConfigTensorsInDram()),
+      toFlatbuffer(cache, config.getFullInnerDim()));
 }
 
 inline ::tt::target::ttnn::Conv2dSliceType

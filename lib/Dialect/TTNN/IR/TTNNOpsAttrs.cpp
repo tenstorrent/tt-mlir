@@ -678,7 +678,8 @@ Conv2dConfigAttr Conv2dConfigAttr::get(::mlir::MLIRContext *context) {
                                /*enableActDoubleBuffer=*/nullptr,
                                /*enableWeightsDoubleBuffer=*/nullptr,
                                /*enableKernelStrideFolding=*/nullptr,
-                               /*configTensorsInDram=*/nullptr);
+                               /*configTensorsInDram=*/nullptr,
+                               /*fullInnerDim=*/nullptr);
 }
 
 // Returns default configuration.
@@ -790,6 +791,12 @@ Conv2dConfigAttr Conv2dConfigAttr::withConfigTensorsInDram(bool value) const {
   return params.buildConv2dConfigAttr(getContext());
 }
 
+Conv2dConfigAttr Conv2dConfigAttr::withFullInnerDim(bool value) const {
+  Conv2dConfigParams params(*this);
+  params.fullInnerDim = value;
+  return params.buildConv2dConfigAttr(getContext());
+}
+
 bool Conv2dConfigAttr::hasActivation() const {
   return getActivation() != nullptr;
 }
@@ -850,6 +857,10 @@ bool Conv2dConfigAttr::hasEnableKernelStrideFolding() const {
 
 bool Conv2dConfigAttr::hasConfigTensorsInDram() const {
   return getConfigTensorsInDram() != nullptr;
+}
+
+bool Conv2dConfigAttr::hasFullInnerDim() const {
+  return getFullInnerDim() != nullptr;
 }
 
 NDShardSpecAttr NDShardSpecAttr::get(TTNNNDLayoutAttr layout) {

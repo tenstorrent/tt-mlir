@@ -417,6 +417,10 @@ createConv2dConfig(const ::tt::target::ttnn::Conv2dConfig *config) {
     conv2dConfig.config_tensors_in_dram = *config->config_tensors_in_dram();
   }
 
+  if (config->full_inner_dim()) {
+    conv2dConfig.full_inner_dim = *config->full_inner_dim();
+  }
+
   return conv2dConfig;
 }
 

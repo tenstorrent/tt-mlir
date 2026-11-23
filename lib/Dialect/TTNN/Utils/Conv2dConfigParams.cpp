@@ -53,6 +53,7 @@ Conv2dConfigParams::Conv2dConfigParams(Conv2dConfigAttr attr, bool partial) {
   enableKernelStrideFolding =
       getOrDefaultBool(attr.getEnableKernelStrideFolding());
   configTensorsInDram = getOrDefaultBool(attr.getConfigTensorsInDram());
+  fullInnerDim = getOrDefaultBool(attr.getFullInnerDim());
 }
 
 Conv2dConfigAttr
@@ -81,6 +82,7 @@ Conv2dConfigParams::buildConv2dConfigAttr(::mlir::MLIRContext *ctx) const {
       coreGrid.value_or(CoreRangeSetAttr()), toBoolAttr(transposeShards),
       outputLayout, toBoolAttr(enableActDoubleBuffer),
       toBoolAttr(enableWeightsDoubleBuffer),
-      toBoolAttr(enableKernelStrideFolding), toBoolAttr(configTensorsInDram));
+      toBoolAttr(enableKernelStrideFolding), toBoolAttr(configTensorsInDram),
+      toBoolAttr(fullInnerDim));
 }
 } // namespace mlir::tt::ttnn

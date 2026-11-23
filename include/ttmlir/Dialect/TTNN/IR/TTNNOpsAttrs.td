@@ -611,6 +611,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     - `enable_act_double_buffer`: Enable activation double buffering for increased performance at cost of higher L1 usage (default: false)
     - `enable_weights_double_buffer`: Enable weights double buffering when using block sharding for increased performance at cost of higher L1 usage (default: false)
     - `enable_kernel_stride_folding`: Enables tensor folding optimization
+    - `config_tensors_in_dram`: Keep the conv's config tensors in DRAM instead of L1
+    - `full_inner_dim`: Compute the whole kh x kw window as one inner-dim block, so fp32 partial sums are not spilled and reloaded between kernel rows (default: false)
 
     Example:
 
@@ -649,7 +651,8 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
                         OptionalParameter<"BoolAttr">:$enable_act_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_weights_double_buffer,
                         OptionalParameter<"BoolAttr">:$enable_kernel_stride_folding,
-                        OptionalParameter<"BoolAttr">:$config_tensors_in_dram);
+                        OptionalParameter<"BoolAttr">:$config_tensors_in_dram,
+                        OptionalParameter<"BoolAttr">:$full_inner_dim);
 
   let builders = [
     AttrBuilder<(ins )>
@@ -674,6 +677,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     Conv2dConfigAttr withEnableWeightsDoubleBuffer(bool value) const;
     Conv2dConfigAttr withEnableKernelStrideFolding(bool value) const;
     Conv2dConfigAttr withConfigTensorsInDram(bool value) const;
+    Conv2dConfigAttr withFullInnerDim(bool value) const;
     bool hasActivation() const;
     bool hasWeightsDtype() const;
     bool hasDeallocateActivation() const;
@@ -692,6 +696,7 @@ def TTNN_Conv2dConfigAttr : TTNN_Attr<"Conv2dConfig", "conv2d_config"> {
     bool hasEnableWeightsDoubleBuffer() const;
     bool hasEnableKernelStrideFolding() const;
     bool hasConfigTensorsInDram() const;
+    bool hasFullInnerDim() const;
   }];
 
   let assemblyFormat = "`<` struct(params) `>`";

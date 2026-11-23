@@ -37,6 +37,7 @@ struct Conv2dConfigParams {
   std::optional<bool> enableWeightsDoubleBuffer = std::nullopt;
   std::optional<bool> enableKernelStrideFolding = std::nullopt;
   std::optional<bool> configTensorsInDram = std::nullopt;
+  std::optional<bool> fullInnerDim = std::nullopt;
 
   // Default constructor - all fields nullopt
   Conv2dConfigParams() = default;
@@ -76,6 +77,7 @@ struct Conv2dConfigParams {
   bool hasConfigTensorsInDram() const {
     return configTensorsInDram.has_value();
   }
+  bool hasFullInnerDim() const { return fullInnerDim.has_value(); }
 
   /// Check if all fields are unset (empty configuration)
   bool empty() const {
@@ -113,7 +115,8 @@ struct Conv2dConfigParams {
        << ":enable_act_double_buffer#" << params.enableActDoubleBuffer
        << ":enable_weights_double_buffer#" << params.enableWeightsDoubleBuffer
        << ":enable_kernel_stride_folding#" << params.enableKernelStrideFolding
-       << ":config_tensors_in_dram#" << params.configTensorsInDram;
+       << ":config_tensors_in_dram#" << params.configTensorsInDram
+       << ":full_inner_dim#" << params.fullInnerDim;
     return os;
   }
 };
