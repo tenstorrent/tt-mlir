@@ -22,9 +22,8 @@ void handleBFloat16ToBool(const uint16_t *oldBuffer, bool *newBuffer,
                           int64_t numElements) {
   LOG_ASSERT(oldBuffer && newBuffer, "Buffer pointers must not be null");
   for (int i = 0; i < numElements; i++) {
-    newBuffer[i] =
-        oldBuffer[i] !=
-        0; // 0 in bfloat16 is also 00000000 00000000, just as in uint16_t
+    // The sign bit does not affect zero-ness: +0 and -0 are both false.
+    newBuffer[i] = (oldBuffer[i] & 0x7FFFu) != 0;
   }
 }
 
