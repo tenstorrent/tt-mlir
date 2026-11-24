@@ -178,17 +178,6 @@ def golden(callback_runtime_config, binary, program_context, op_context):
             logging,
         )
 
-        # Handle case where tensor has only one non-zero element.
-        if golden_tensor_torch.numel() == 1 and golden_tensor_torch.item() != 0:
-            cal_pcc = (
-                1.0
-                if torch.nn.functional.cosine_similarity(
-                    golden_tensor_torch.float().unsqueeze(0),
-                    output_tensor_torch.float().unsqueeze(0),
-                ).item()
-                else 0.0
-            )
-
         logging.debug(f"For device {device_id} at loc={loc}, PCC={cal_pcc}")
         logging.debug(output_str)
 

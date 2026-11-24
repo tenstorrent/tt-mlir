@@ -102,7 +102,7 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging=None):
     else:
         # Calculate atol and rtol
         cal_atol = torch.max(torch.abs(golden - calculated)).item()
-        cal_rtol = torch.max(torch.abs((golden - calculated) / calculated)).item()
+        cal_rtol = torch.max(torch.abs((golden - calculated) / golden)).item()
 
     # Calculate PCC
     def get_pcc(golden, calculated):
@@ -164,8 +164,8 @@ def get_atol_rtol_pcc(golden, calculated, atol, rtol, logging=None):
             np.fill_diagonal(mask, 0)
             cal_pcc = np.min(cal_pcc[mask])
 
-            if isinstance(cal_pcc, np.ma.core.MaskedConstant):
-                return 1.0
+            if isinstance(cal_pcc, np.ma.core.MaskedConstant) or np.isnan(cal_pcc):
+                return float(torch.allclose(golden, calculated, atol=atol, rtol=rtol))
 
             return cal_pcc
 
