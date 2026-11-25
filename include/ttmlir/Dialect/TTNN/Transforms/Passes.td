@@ -62,6 +62,21 @@ def TTNNRowMajorNchwOutputs: Pass<"ttnn-row-major-nchw-outputs", "::mlir::Module
   }];
 }
 
+def TTNNShardedUpsample: Pass<"ttnn-sharded-upsample", "::mlir::ModuleOp"> {
+  let summary = "Keep conv -> 2x2 upsample -> conv decoder stages sharded in L1.";
+  let description = [{
+    Rebuilds a `conv (TILE, L1 height sharded) -> movement ops -> upsample 2x2
+    -> movement ops -> conv` stage as an untilize on the producer's own
+    shards, a row-major reshape view, a height-sharded upsample onto the same
+    cores (4x the shard height) and a reshape view feeding the next conv, with
+    no DRAM round trip and no full-resolution tilize / untilize. A stage whose
+    input is channel-padded (`pad -> ... -> upsample -> ... -> conv`) is run
+    row-major in L1 instead: untilize, row-major pad, upsample and a reshape
+    view into the conv, replacing the TILE pad and the DRAM round trip. Runs
+    after the optimizer.
+  }];
+}
+
 def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   let summary = "Decompose ToLayoutOps to more granular memory ops.";
   let description = [{

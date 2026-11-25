@@ -553,6 +553,7 @@ void createTTIRToTTNNCommonPipeline(
     }
     if (options.enableConvLayoutOpt) {
       devicePm.addPass(createTTNNRowMajorNchwOutputs());
+      devicePm.addPass(createTTNNShardedUpsample());
     }
 
     // Bind distributed-op semaphores after the optimizer (core range derives
