@@ -45,11 +45,13 @@ void createTTNNPipelineTTIRPasses(
   pm.addPass(
       mlir::tt::ttcore::createTTPopulateArgumentTypes(options.argumentTypeMap));
   pm.addPass(mlir::createCanonicalizerPass());
-  // Per-channel-range bias adds after a bias-less conv become the conv's bias;
-  // needs the argument types populated above (to know the biases are
-  // parameters) and runs before the transposes are decomposed.
+  // Per-channel-range bias adds after a bias-less conv become the conv's bias,
+  // and bilinear upsample channels are padded into the next conv. Both need
+  // the argument types populated above (to know which operands are
+  // parameters) and run before the transposes are decomposed.
   if (options.enableConvLayoutOpt) {
     pm.addPass(mlir::tt::ttir::createTTIRFoldSlicedBiasIntoConv());
+    pm.addPass(mlir::tt::ttir::createTTIRPadUpsampleChannels());
   }
   ttir::TTIRFusingOptions fusingOptions{
       options.enableFusingConv2dWithMultiplyPattern,

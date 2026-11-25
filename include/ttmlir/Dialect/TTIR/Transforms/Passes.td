@@ -545,6 +545,17 @@ def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::Module
   }];
 }
 
+def TTIRPadUpsampleChannels : Pass<"ttir-pad-upsample-channels", "::mlir::ModuleOp"> {
+  let summary = "Zero pad the channels of a bilinear upsample feeding a conv and keep them through the conv.";
+  let description = [{
+    A bilinear `upsample2d -> conv2d` whose channel count is not a multiple of
+    32 is padded once to the next multiple of 32 (zeros), upsampled on all
+    channels, and fed to the conv with zero weights on the extra input
+    channels (same result). This replaces the pad / slice / re-tilize the
+    upsample lowering would otherwise insert around it.
+  }];
+}
+
 def TTIRFoldSlicedBiasIntoConv : Pass<"ttir-fold-sliced-bias-into-conv", "::mlir::ModuleOp"> {
   let summary = "Fold per-channel-range bias adds after a bias-less conv2d into the conv's bias.";
   let description = [{

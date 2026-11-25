@@ -18,6 +18,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         MoveReshapeToConstant.cpp
         StridedConvSpaceToDepthOpt.cpp
         TTIRFoldSlicedBiasIntoConv.cpp
+        TTIRPadUpsampleChannels.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
         ReductionForceKeepDim.cpp
