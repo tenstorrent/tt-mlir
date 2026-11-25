@@ -34,15 +34,40 @@ static void runEltwiseBinaryOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
 
+// Add with fused post-activations (e.g. relu): applied inside the binary
+// kernel, so the result is written once.
+static void runAddOp(const ::tt::target::ttnn::EltwiseBinaryOp *op,
+                     ProgramTensorPool &tensorPool) {
+  if (!op->activations() || op->activations()->size() == 0) {
+    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
+      return ::ttnn::add(std::forward<decltype(args)>(args)...);
+    });
+    return;
+  }
+  std::vector<::ttnn::operations::unary::EltwiseUnaryWithParam> activations;
+  for (const ::tt::target::ttnn::UnaryWithParam *act : *op->activations()) {
+    ::ttnn::operations::unary::UnaryWithParam converted =
+        ::tt::runtime::ttnn::operations::utils::toTTNNUnaryWithParam(*act);
+    activations.emplace_back(
+        converted.op_type,
+        std::vector<float>(converted.params.begin(), converted.params.end()));
+  }
+  runEltwiseBinaryOp(op, tensorPool, [&](auto &&...args) {
+    return ::ttnn::add(
+        std::forward<decltype(args)>(args)...,
+        /*output=*/std::nullopt,
+        ttsl::Span<const ::ttnn::operations::unary::EltwiseUnaryWithParam>(
+            activations.data(), activations.size()));
+  });
+}
+
 void run(const ::tt::target::ttnn::EltwiseBinaryOp *op,
          ProgramContext &context) {
   ProgramTensorPool &tensorPool = context.getTensorPool();
   switch (op->type()) {
   /* Eltwise Binary */
   case ::tt::target::ttnn::EltwiseBinaryOpType::Add: {
-    runEltwiseBinaryOp(op, tensorPool, [](auto &&...args) {
-      return ::ttnn::add(std::forward<decltype(args)>(args)...);
-    });
+    runAddOp(op, tensorPool);
     break;
   }
   case ::tt::target::ttnn::EltwiseBinaryOpType::Multiply: {

@@ -123,6 +123,48 @@ private:
   }
 };
 
+// add -> activation, where the activation is the add's only user: apply the
+// activation inside the add (ttnn::add post_activations), so the sum is
+// written once instead of being written, read back and rewritten by a
+// separate unary op.
+template <typename ActivationOp>
+class TTNNAddWithActivation : public mlir::OpRewritePattern<ActivationOp> {
+  using TTNNAddWithActivation::template OpRewritePattern<
+      ActivationOp>::OpRewritePattern;
+
+public:
+  mlir::LogicalResult
+  matchAndRewrite(ActivationOp activationOp,
+                  mlir::PatternRewriter &rewriter) const final {
+    auto addOp = activationOp.getInput().template getDefiningOp<AddOp>();
+    if (!addOp || !addOp.getResult().hasOneUse()) {
+      return failure();
+    }
+    if (addOp.getActivationsAttr() && !addOp.getActivationsAttr().empty()) {
+      return failure();
+    }
+    // The fused op produces the activation's result directly: same shape,
+    // element type and layout.
+    if (addOp.getResult().getType() != activationOp.getResult().getType()) {
+      return failure();
+    }
+
+    llvm::StringRef opName =
+        ActivationOp::getOperationName().rsplit('.').second;
+    std::optional<UnaryOpType> type = symbolizeUnaryOpType(opName);
+    if (!type) {
+      return failure();
+    }
+    auto activation =
+        UnaryWithParamAttr::get(rewriter.getContext(), *type, /*params=*/{});
+    rewriter.modifyOpInPlace(addOp, [&]() {
+      addOp.setActivationsAttr(rewriter.getArrayAttr({activation}));
+    });
+    rewriter.replaceOp(activationOp, addOp.getResult());
+    return mlir::success();
+  }
+};
+
 template <typename SrcOp, typename ActivationOp>
 class TTNNMatmulAndLinearWithActivation : public mlir::OpRewritePattern<SrcOp> {
   using TTNNMatmulAndLinearWithActivation::template OpRewritePattern<
@@ -437,6 +479,7 @@ public:
     patterns.add<
         TTNNConv2dWithActivation<ReluOp>, TTNNConv2dWithActivation<Relu6Op>,
         TTNNConv2dWithActivation<SiluOp>, TTNNConv2dWithActivation<SigmoidOp>,
+        TTNNAddWithActivation<ReluOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<LinearOp, SigmoidOp>,
         TTNNMatmulAndLinearWithActivation<MatmulOp, SiluOp>,

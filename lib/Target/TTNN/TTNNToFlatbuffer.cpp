@@ -2144,8 +2144,23 @@ createEltwiseBinaryOp(FlatbufferObjectCache &cache, EltwiseBinaryOp op) {
 
   auto memoryConfig = toFlatbuffer(cache, op.getMemoryConfigAttr());
 
+  ::flatbuffers::Offset<::flatbuffers::Vector<
+      ::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>>>
+      activations = 0;
+  if constexpr (std::is_same_v<EltwiseBinaryOp, AddOp>) {
+    if (auto acts = op.getActivationsAttr(); acts && !acts.empty()) {
+      std::vector<::flatbuffers::Offset<::tt::target::ttnn::UnaryWithParam>>
+          actOffsets;
+      for (UnaryWithParamAttr act :
+           acts.template getAsRange<UnaryWithParamAttr>()) {
+        actOffsets.push_back(toFlatbuffer(cache, act));
+      }
+      activations = cache.fbb->CreateVector(actOffsets);
+    }
+  }
+
   return ::tt::target::ttnn::CreateEltwiseBinaryOp(
-      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out);
+      *cache.fbb, type, lhs, rhs, outputDtype, memoryConfig, out, activations);
 }
 
 template <typename EltwiseBinaryCompositeOp>

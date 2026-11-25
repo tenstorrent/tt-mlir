@@ -312,6 +312,14 @@ public:
         emitter.emit(eltwiseBinaryOp.getDtypeAttr(), "dtype"),
         emitter.emit(eltwiseBinaryOp.getMemoryConfigAttr(), "memory_config"),
     };
+    if constexpr (std::is_same_v<TTNNOpTy, mlir::tt::ttnn::AddOp>) {
+      if (mlir::ArrayAttr acts = eltwiseBinaryOp.getActivationsAttr();
+          acts && !acts.empty()) {
+        args.push_back(emitter.template emit<
+                       std::vector<::ttnn::operations::unary::UnaryWithParam>>(
+            acts, "post_activations"));
+      }
+    }
 
     emitter.replaceOp(*this, args);
 

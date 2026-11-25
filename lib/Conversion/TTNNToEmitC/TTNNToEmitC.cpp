@@ -424,6 +424,35 @@ public:
         emitter.emit(srcOp.getMemoryConfigAttr()),
     };
 
+    // ttnn::add(..., output, post_activations): fused activations follow the
+    // optional output tensor.
+    if constexpr (std::is_same_v<SourceOp, mlir::tt::ttnn::AddOp>) {
+      if (mlir::ArrayAttr acts = srcOp.getActivationsAttr();
+          acts && !acts.empty()) {
+        constexpr const char *kAct =
+            "::ttnn::operations::unary::EltwiseUnaryWithParam";
+        std::string code =
+            std::string("::ttsl::make_const_span(::std::vector<") + kAct + ">{";
+        llvm::raw_string_ostream os(code);
+        bool first = true;
+        for (auto act : acts.getAsRange<mlir::tt::ttnn::UnaryWithParamAttr>()) {
+          os << (first ? "" : ", ") << kAct << "("
+             << ttnn_to_emitc::convert(act.getOpType());
+          if (!act.getParams().empty()) {
+            os << ", "
+               << ttnn_to_emitc::EmitCTypeConverter<
+                      std::vector<float>>::convert(act.getParams());
+          }
+          os << ")";
+          first = false;
+        }
+        os << "})";
+        args.push_back(
+            emitc::OpaqueAttr::get(rewriter.getContext(), "::std::nullopt"));
+        args.push_back(emitc::OpaqueAttr::get(rewriter.getContext(), code));
+      }
+    }
+
     emitter.replaceOp(*this, args);
 
     return success();

@@ -576,7 +576,23 @@ def TTNN_AddOp : TTNN_ElementwiseBinaryOp<"add"> {
     let summary = "Eltwise add.";
     let description = [{
       Eltwise add operation.
+
+      `activations` are unary ops applied to the sum inside the same kernel
+      (ttnn::add post_activations), e.g. a fused relu, so no separate unary op
+      reads the result back.
     }];
+
+    let arguments = (ins AnyRankedTensor:$lhs,
+                         AnyRankedTensor:$rhs,
+                         OptionalAttr<TypedArrayAttrBase<UnaryWithParamAttr, "fused post-activations">>:$activations);
+
+    let builders = [
+      // Plain add without fused activations (the form every lowering uses).
+      OpBuilder<(ins "Type":$result, "Value":$lhs, "Value":$rhs),
+      [{
+        build($_builder, $_state, result, lhs, rhs, /*activations=*/nullptr);
+      }]>
+    ];
 }
 
 def TTNN_DivideOp : TTNN_ElementwiseBinaryOp<"divide"> {
