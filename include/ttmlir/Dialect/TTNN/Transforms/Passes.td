@@ -51,6 +51,17 @@ def TTNNPixelUnshuffleChannelsLast: Pass<"ttnn-pixel-unshuffle-channels-last", "
   }];
 }
 
+def TTNNRowMajorNchwOutputs: Pass<"ttnn-row-major-nchw-outputs", "::mlir::ModuleOp"> {
+  let summary = "Produce NHWC -> NCHW model outputs row-major instead of through tile permutes.";
+  let description = [{
+    Rebuilds `producer (TILE, L1 sharded) -> reshape [N,H,W,C] ->
+    permute [0,3,1,2] -> layout ops -> return` as a single sharded untilize into
+    row-major L1, a reshape view and a row-major permute written straight into
+    the output memory. The function returns the output row-major, so it is not
+    untilized again on readback. Runs after the optimizer.
+  }];
+}
+
 def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   let summary = "Decompose ToLayoutOps to more granular memory ops.";
   let description = [{

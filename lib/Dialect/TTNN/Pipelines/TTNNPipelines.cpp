@@ -543,6 +543,9 @@ void createTTIRToTTNNCommonPipeline(
     if (options.enableStridedConvSpaceToDepthOpt) {
       devicePm.addPass(createTTNNPixelUnshuffleChannelsLast());
     }
+    if (options.enableConvLayoutOpt) {
+      devicePm.addPass(createTTNNRowMajorNchwOutputs());
+    }
 
     // Bind distributed-op semaphores after the optimizer (core range derives
     // from the finalized input shard spec) and before trace hoisting (SSA

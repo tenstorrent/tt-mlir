@@ -610,6 +610,16 @@ struct TTIRToTTNNCommonPipelineOptions
                      "tile padding, the tilize and the reshards)."),
       llvm::cl::init(false)};
 
+  // Graph and layout rewrites around convolutions (TTIR passes before
+  // lowering, TTNN passes after the optimizer). Off by default.
+  Option<bool> enableConvLayoutOpt{
+      *this, "enable-conv-layout-opt",
+      llvm::cl::desc("Graph and layout rewrites for conv-heavy models: bias "
+                     "folding into convs, row-major NCHW outputs, L1-resident "
+                     "upsample stages, row-major concat / conv inputs and conv "
+                     "blocking rules."),
+      llvm::cl::init(false)};
+
   // Resolve options controlled by optimization_level.
   void resolveOptimizationLevelOptions() const {
     // Validate optimization_level is in valid range.
