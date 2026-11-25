@@ -88,6 +88,30 @@ def TTNNRowMajorConcat: Pass<"ttnn-row-major-concat", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNRowMajorConvInputs: Pass<"ttnn-row-major-conv-inputs", "::mlir::ModuleOp"> {
+  let summary = "Untilize narrow height-sharded inputs of >= 3x3 height-sharded convs.";
+  let description = [{
+    A height-sharded conv with a kernel of at least 3x3 on at least 30000
+    input pixels, whose input is a height-sharded TILE tensor with a channel
+    count that is not a tile multiple, reads the input row-major: it is
+    untilized once on its own shards (shared by all convs reading it) and the
+    conv's halo reads row-major sticks instead of untilizing tiles itself.
+    Runs after the optimizer.
+  }];
+}
+
+def TTNNConvConfigRules: Pass<"ttnn-conv-config-rules", "::mlir::ModuleOp"> {
+  let summary = "Apply sweep-derived conv2d blocking / buffering rules.";
+  let description = [{
+    Block-sharded convs get full_inner_dim and act + weights double
+    buffering; height-sharded convs on <= 4096 input pixels get act + weights
+    double buffering; height-sharded 3x3/s1 convs on 30k-100k pixels with at
+    most 32 input channels get full_inner_dim, act_block_h_override = 128 and
+    act double buffering. Math (fidelity, accumulation) is unchanged. Runs
+    after the optimizer.
+  }];
+}
+
 def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   let summary = "Decompose ToLayoutOps to more granular memory ops.";
   let description = [{

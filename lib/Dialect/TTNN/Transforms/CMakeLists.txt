@@ -86,6 +86,7 @@ add_mlir_dialect_library(MLIRTTNNTransforms
         TTNNRowMajorNchwOutputs.cpp
         TTNNShardedUpsample.cpp
         TTNNRowMajorConcat.cpp
+        TTNNConvLayoutRules.cpp
         TTNNTraceHoistTransform.cpp
         TTNNUniqueLocs.cpp
         TTNNWeightDtypeConversion.cpp

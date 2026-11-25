@@ -555,6 +555,8 @@ void createTTIRToTTNNCommonPipeline(
       devicePm.addPass(createTTNNRowMajorNchwOutputs());
       devicePm.addPass(createTTNNShardedUpsample());
       devicePm.addPass(createTTNNRowMajorConcat());
+      devicePm.addPass(createTTNNRowMajorConvInputs());
+      devicePm.addPass(createTTNNConvConfigRules());
     }
 
     // Bind distributed-op semaphores after the optimizer (core range derives
