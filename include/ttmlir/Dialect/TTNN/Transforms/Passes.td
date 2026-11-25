@@ -77,6 +77,17 @@ def TTNNShardedUpsample: Pass<"ttnn-sharded-upsample", "::mlir::ModuleOp"> {
   }];
 }
 
+def TTNNRowMajorConcat: Pass<"ttnn-row-major-concat", "::mlir::ModuleOp"> {
+  let summary = "Concat narrow height-sharded channels row-major for a consuming conv.";
+  let description = [{
+    A channel concat of height-sharded TILE inputs whose widths are not tile
+    multiples, consumed only by a conv, is emitted as a row-major concat of the
+    untilized shards; the conv reads the row-major result directly instead of
+    ttnn re-tilizing it and the conv's halo untilizing it again. Runs after
+    the optimizer.
+  }];
+}
+
 def TTNNDecomposeLayouts: Pass<"ttnn-decompose-layouts", "::mlir::ModuleOp"> {
   let summary = "Decompose ToLayoutOps to more granular memory ops.";
   let description = [{
