@@ -17,6 +17,7 @@ add_mlir_dialect_library(MLIRTTIRTransforms
         PropagateWeightDtype.cpp
         MoveReshapeToConstant.cpp
         StridedConvSpaceToDepthOpt.cpp
+        TTIRFoldSlicedBiasIntoConv.cpp
         Quantization.cpp
         QuantDequantConversion.cpp
         ReductionForceKeepDim.cpp

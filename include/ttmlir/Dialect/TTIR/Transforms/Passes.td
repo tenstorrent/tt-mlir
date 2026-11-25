@@ -545,6 +545,19 @@ def TTIRCPUBooleanNarrowing : Pass<"ttir-cpu-boolean-narrowing", "::mlir::Module
   }];
 }
 
+def TTIRFoldSlicedBiasIntoConv : Pass<"ttir-fold-sliced-bias-into-conv", "::mlir::ModuleOp"> {
+  let summary = "Fold per-channel-range bias adds after a bias-less conv2d into the conv's bias.";
+  let description = [{
+    Matches a bias-less conv2d whose output (possibly through transposes /
+    permutes) is cut into channel ranges by index / slice_static ops, each
+    followed by an add of a parameter or constant bias shaped 1 everywhere
+    except the channel dim. When the ranges partition all output channels, the
+    biases are reshaped to [1,1,1,c_i] and concatenated (const-eval folds this)
+    into the conv's bias, and the adds are removed.
+  }];
+  let dependentDialects = ["mlir::tt::ttir::TTIRDialect"];
+}
+
 def TTIRStridedConvSpaceToDepthOpt : Pass<"ttir-strided-conv-space-to-depth-opt", "::mlir::ModuleOp"> {
   let summary = "Space-to-depth packing for narrow-channel stride-2 stem conv2d: "
                 "channels_last pixel_unshuffle(2) + stride-1 conv with "
