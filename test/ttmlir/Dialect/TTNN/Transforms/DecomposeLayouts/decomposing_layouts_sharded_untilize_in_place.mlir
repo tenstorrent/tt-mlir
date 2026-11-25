@@ -12,6 +12,8 @@
 // 32, 3 image rows per core -> shard [96, 832].
 #hs_tile = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 6144 + d1 * 32 + d2, d3), <64x1>, memref<3x26x!ttcore.tile<32x32, bf16>, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>>
 #hs_rm_same_shard = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 6144 + d1 * 32 + d2, d3), <64x1>, memref<96x832xbf16, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>>
+// Row-major L1 interleaved: untilized straight out of the shards.
+#rm_l1_interleaved = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 3072 + d1 * 16 + d2, d3), <8x8>, memref<3072x832xbf16, #l1>, <interleaved>>
 // Same cores, unpadded shard [48, 832]: not the shard the untilize produces.
 #hs_rm_other_shard = #ttnn.ttnn_layout<(d0, d1, d2, d3) -> (d0 * 3072 + d1 * 16 + d2, d3), <64x1>, memref<48x832xbf16, #l1>, <height_sharded>, core_ranges = <[#ttnn.core_range<(0,0), (7,7)>]>>
 
@@ -32,5 +34,14 @@ module attributes {} {
     // CHECK: "ttnn.to_layout"
     %0 = "ttnn.to_layout"(%arg0) : (tensor<1x192x16x832xbf16, #hs_tile>) -> tensor<1x192x16x832xbf16, #hs_rm_other_shard>
     return %0 : tensor<1x192x16x832xbf16, #hs_rm_other_shard>
+  }
+
+  // CHECK-LABEL: func.func @untilize_to_interleaved
+  func.func @untilize_to_interleaved(%arg0: tensor<1x192x16x832xbf16, #hs_tile>) -> tensor<1x192x16x832xbf16, #rm_l1_interleaved> {
+    // CHECK: %[[R:.*]] = "ttnn.to_layout"(%arg0)
+    // CHECK-NOT: "ttnn.to_memory_config"
+    // CHECK: return %[[R]]
+    %0 = "ttnn.to_layout"(%arg0) : (tensor<1x192x16x832xbf16, #hs_tile>) -> tensor<1x192x16x832xbf16, #rm_l1_interleaved>
+    return %0 : tensor<1x192x16x832xbf16, #rm_l1_interleaved>
   }
 }

@@ -63,7 +63,8 @@ public:
           return;
         }
         // Already a single tt-metal op: leave it as is.
-        if (isInPlaceShardedUntilize(mlir::cast<ttnn::ToLayoutOp>(op))) {
+        if (isInPlaceShardedUntilize(mlir::cast<ttnn::ToLayoutOp>(op)) ||
+            isShardedUntilizeToInterleaved(mlir::cast<ttnn::ToLayoutOp>(op))) {
           return;
         }
         opsToReplace.push_back(op);
@@ -215,6 +216,19 @@ private:
            input.getGridShape() == output.getGridShape() &&
            input.getCoreRangeSet() == output.getCoreRangeSet() &&
            input.getScalarShardShape() == output.getScalarShardShape();
+  }
+
+  // A TILE -> ROW_MAJOR to_layout from an L1-sharded tensor into an
+  // interleaved device tensor, no dtype change. tt-metal untilizes the shards
+  // straight into the interleaved output (one UntilizeWithUnpadding); the
+  // generic decomposition would add a separate sharded-to-interleaved copy.
+  bool isShardedUntilizeToInterleaved(ttnn::ToLayoutOp op) const {
+    auto [input, output] = getInputOutputLayouts(op);
+    return input.isTiled() && !output.isTiled() &&
+           !hasDtypeChange(input, output) &&
+           input.hasShardedL1TensorMemoryLayout() &&
+           output.isDeviceBufferType() &&
+           output.getMemLayoutOpt() == TensorMemoryLayout::Interleaved;
   }
 
   //===--------------------------------------------------------------------===//
