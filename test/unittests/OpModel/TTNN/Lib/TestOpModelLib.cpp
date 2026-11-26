@@ -5986,6 +5986,26 @@ TEST_F(OpModelAdamWTest, AdamWOpFloat32) {
   }
 }
 
+TEST_F(OpModelAdamWTest, AdamWOpBFloat16) {
+  const llvm::SmallVector<int64_t> shape = {1, 1, 128, 128};
+
+  const TTNNLayoutAttr bf16Layout = CreateTiledLayout(
+      shape, BufferType::DRAM, TensorMemoryLayout::Interleaved);
+
+  auto constraintsExp = queryConstraints(shape, bf16Layout, bf16Layout,
+                                         bf16Layout, /*amsgrad=*/false,
+                                         /*stochasticRounding=*/true);
+  EXPECT_TRUE(static_cast<bool>(constraintsExp));
+  if (!constraintsExp) {
+    llvm::consumeError(constraintsExp.takeError());
+  } else {
+    OpConstraints &opCstr = constraintsExp.get();
+    EXPECT_GT(opCstr.cbL1PeakSize, 0);
+    EXPECT_EQ(opCstr.tensorL1PeakSize, 0);
+    EXPECT_EQ(opCstr.outputL1BufferSize, 0);
+  }
+}
+
 TEST_F(OpModelAdamWTest, AdamWOpRejectsL1Param) {
   // The ttml device operation TT_FATALs unless every operand is in DRAM. The
   // query must surface that as an error rather than a bogus cost, otherwise the

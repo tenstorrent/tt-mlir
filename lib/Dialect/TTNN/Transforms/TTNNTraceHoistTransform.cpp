@@ -966,13 +966,13 @@ private:
     return mlir::success();
   }
 
-  // ttnn.adamw is not hoistable (host readback of lr / beta*_pow), so an
-  // adamw followed by hoistable compute would split the trace region and fail
-  // below. adamw has no results and mutates its param / moment operands in
-  // place, so it can be moved to the end of the block as long as no later
-  // non-adamw op touches any of its operands. Relative order of adamw ops is
-  // preserved. Anything that cannot be moved is left in place and reported by
-  // the "non-hoistable op in the middle" check.
+  // ttnn.adamw is not hoistable (host readback of lr / beta*_pow and per-step
+  // seed generation), so an adamw followed by hoistable compute would split the
+  // trace region and fail below. adamw has no results and mutates its param /
+  // moment operands in place, so it can be moved to the end of the block as
+  // long as no later non-adamw op touches any of its operands. Relative order
+  // of adamw ops is preserved. Anything that cannot be moved is left in place
+  // and reported by the "non-hoistable op in the middle" check.
   void sinkAdamWOpsToEnd(mlir::Block &block) {
     llvm::SmallVector<Operation *> adamWOps;
     for (mlir::Operation &op : block.getOperations()) {

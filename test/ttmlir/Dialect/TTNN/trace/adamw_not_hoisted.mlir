@@ -2,8 +2,9 @@
 // RUN: FileCheck %s --input-file=%t
 
 // ttnn.adamw reads lr / beta*_pow back to the host, a sync a captured trace
-// would not replay, so it must stay outside the trace region while the compute
-// feeding it (the gradient multiply) is traced.
+// would not replay. Also, the seed for stochastic rounding (if enabled) is
+// generated on host in every step. So it must stay outside the trace region
+// while the compute feeding it (the gradient multiply) is traced.
 module {
   // CHECK-LABEL: func.func private @trace_0_step
   // CHECK: "ttnn.multiply"
