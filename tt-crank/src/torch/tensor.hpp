@@ -109,6 +109,18 @@ at::Tensor &write_result_into(at::Tensor &out, const at::Tensor &result);
 // Returns pair of runtime tensor, and bool that represents whether runtime tensor is borrowed from ``t``.
 std::pair<::tt::runtime::Tensor, bool> runtime_from_torch_tensor(const at::Tensor &t, bool try_borrow = false);
 
+// Every chip's slab of a tt tensor, copied to host: one contiguous CPU tensor per
+// runtime shard, in mesh order (a single one on a 1x1 mesh). Sharded and replicated
+// tensors both come back with `mesh_size` entries; a replicated tensor's are equal.
+// This is the per-shard counterpart of `.cpu()`, which yields only shard 0 (the
+// `to_local` view DTensor expects).
+std::vector<at::Tensor> host_shards_of(const at::Tensor &t);
+
+// Inverse of `host_shards_of`: a tt tensor whose chip i holds `shards[i]` (one shard
+// per chip), or a replicated tensor when `shards` has a single entry. All shards must
+// share shape and dtype; the data is copied, so the CPU tensors may be released.
+at::Tensor tt_from_host_shards(const std::vector<at::Tensor> &shards);
+
 // True iff `d` is a tt (PrivateUse1) device.
 bool is_tt(const at::Device &d);
 
