@@ -2810,19 +2810,53 @@ static mlir::OpFoldResult constFoldReshape(mlir::tt::ttir::ReshapeOp op,
   return nullptr;
 }
 
+// Match `outShape` against `inShape` with unit dimensions deleted. Returns, for
+// each position of `inShape`, its index in `outShape`, or -1 when that position
+// is one of the deleted unit dims; std::nullopt when `outShape` cannot be
+// obtained from `inShape` by deleting unit dims alone.
+//
+// Example: inShape = [1, 4, 1, 1, 5], outShape = [4, 5]
+//   inDim 0 (extent 1) doesn't match outShape[0]=4, so it's a deleted unit dim
+//     -> inToOut[0] = -1
+//   inDim 1 (extent 4) matches outShape[0]=4 -> inToOut[1] = 0
+//   inDim 2 (extent 1) doesn't match outShape[1]=5, deleted -> inToOut[2] = -1
+//   inDim 3 (extent 1) doesn't match outShape[1]=5, deleted -> inToOut[3] = -1
+//   inDim 4 (extent 5) matches outShape[1]=5 -> inToOut[4] = 1
+// Result: inToOut = [-1, 0, -1, -1, 1]
+static std::optional<llvm::SmallVector<int64_t>>
+matchShapeByDeletingUnitDims(const llvm::ArrayRef<int64_t> &inShape,
+                             const llvm::ArrayRef<int64_t> &outShape) {
+  llvm::SmallVector<int64_t> inToOut(inShape.size(), -1);
+  size_t outDim = 0;
+  for (size_t inDim = 0; inDim < inShape.size(); ++inDim) {
+    if (outDim < outShape.size() && inShape[inDim] == outShape[outDim]) {
+      inToOut[inDim] = outDim++;
+      continue;
+    }
+    if (inShape[inDim] != 1) {
+      return std::nullopt;
+    }
+  }
+  if (outDim != outShape.size()) {
+    return std::nullopt;
+  }
+  return inToOut;
+}
+
 // ReshapeOp canonicalization
 //
 // Fold Reshape(Permute(Reshape(x))) → Permute(Reshape(x)) when the trailing
-// reshape only removes leading unit dimensions. The permutation is adjusted to
-// operate at the lower rank.
+// reshape does nothing but delete unit dimensions from the permute's result,
+// wherever in the shape they sit. The permutation is rebuilt over the surviving
+// dims and the leading reshape is retargeted, so the rewrite never adds an op.
 //
 // Example:
-//   reshape: 256x32 → 1x1x256x32
-//   permute [0,1,3,2]: 1x1x256x32 → 1x1x32x256
-//   reshape: 1x1x32x256 → 1x32x256
+//   reshape: 4096x32x128 → 1x4096x32x1x128
+//   permute [2,1,4,0,3]: → 32x4096x128x1x1
+//   reshape: → 32x4096x128
 // Becomes:
-//   reshape: 256x32 → 1x256x32
-//   permute [0,2,1]: 1x256x32 → 1x32x256
+//   reshape: 4096x32x128 → 4096x32x128    (identity, folds away)
+//   permute [1,0,2]: → 32x4096x128
 //
 void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
     mlir::RewritePatternSet &patterns, mlir::MLIRContext *context) {
@@ -2840,60 +2874,75 @@ void mlir::tt::ttir::ReshapeOp::getCanonicalizationPatterns(
       return failure();
     }
 
-    // Check that the trailing reshape only removes leading 1s.
-    auto permuteOutShape = permuteOp.getType().getShape();
-    auto outShape = trailingReshape.getType().getShape();
+    llvm::ArrayRef<int64_t> permuteOutShape = permuteOp.getType().getShape();
+    llvm::ArrayRef<int64_t> outShape = trailingReshape.getType().getShape();
     if (outShape.size() >= permuteOutShape.size()) {
       return failure();
     }
-    int64_t n = permuteOutShape.size() - outShape.size();
-    if (!llvm::all_of(permuteOutShape.take_front(n),
-                      [](int64_t d) { return d == 1; })) {
-      return failure();
-    }
-    if (permuteOutShape.drop_front(n) != outShape) {
+
+    std::optional<llvm::SmallVector<int64_t>> resultToOut =
+        matchShapeByDeletingUnitDims(permuteOutShape, outShape);
+    if (!resultToOut) {
       return failure();
     }
 
-    // Check that the first n permuted dims come from the first n input dims
-    // (all unit dims mapping to unit dims).
-    auto perm = permuteOp.getPermutation();
-    for (int64_t i = 0; i < n; ++i) {
-      if (perm[i] >= n) {
+    // Deleting a result dim deletes its source dim from the permute too. That
+    // source is necessarily a unit dim as well: a permutation moves extents
+    // around without changing them.
+    llvm::ArrayRef<int64_t> perm = permuteOp.getPermutation();
+    llvm::SmallVector<bool> dropped(perm.size(), false);
+    for (size_t dim = 0; dim < perm.size(); ++dim) {
+      if ((*resultToOut)[dim] < 0) {
+        dropped[perm[dim]] = true;
+      }
+    }
+
+    // The surviving operand dims, in order, form the new permute's operand.
+    RankedTensorType permuteInType = permuteOp.getInput().getType();
+    llvm::ArrayRef<int64_t> permuteInShape = permuteInType.getShape();
+    llvm::SmallVector<int64_t> newInShape;
+    llvm::SmallVector<int64_t> operandToNew(permuteInShape.size(), -1);
+    for (size_t dim = 0; dim < permuteInShape.size(); ++dim) {
+      if (!dropped[dim]) {
+        operandToNew[dim] = newInShape.size();
+        newInShape.push_back(permuteInShape[dim]);
+      }
+    }
+    if (newInShape.size() != outShape.size()) {
+      return failure();
+    }
+
+    // Rebuild the permutation over the survivors, indexed by result position.
+    llvm::SmallVector<int64_t> newPerm(outShape.size(), -1);
+    for (size_t dim = 0; dim < perm.size(); ++dim) {
+      int64_t outPos = (*resultToOut)[dim];
+      if (outPos >= 0) {
+        newPerm[outPos] = operandToNew[perm[dim]];
+      }
+    }
+
+    // The rebuilt permutation has to be total, and applying it to the new
+    // operand shape has to reproduce the result type being replaced. Both hold
+    // for a well-formed permutation; check rather than assume, since failing
+    // here just declines the rewrite whereas building the op would not verify.
+    for (size_t outPos = 0; outPos < newPerm.size(); ++outPos) {
+      if (newPerm[outPos] < 0 ||
+          newInShape[newPerm[outPos]] != outShape[outPos]) {
         return failure();
       }
     }
 
-    // Build the new lower-rank permutation.
-    SmallVector<int64_t> newPerm;
-    for (int64_t i = n; i < static_cast<int64_t>(perm.size()); ++i) {
-      newPerm.push_back(perm[i] - n);
-    }
-
-    // Build the new input reshape shape (drop leading 1s from permute input).
-    auto permuteInType = permuteOp.getInput().getType();
-    auto permuteInShape = permuteInType.getShape();
-    SmallVector<int64_t> newMidShape(permuteInShape.drop_front(n));
-
-    // Create new reshape: original input → reduced rank.
-    auto newMidType =
-        RankedTensorType::get(newMidShape, permuteInType.getElementType(),
-                              permuteInType.getEncoding());
-    SmallVector<int32_t> midShapeAttr(newMidShape.begin(), newMidShape.end());
+    llvm::SmallVector<int32_t> newInShapeAttr(newInShape.begin(),
+                                              newInShape.end());
     auto newReshape = rewriter.create<mlir::tt::ttir::ReshapeOp>(
-        leadingReshape.getLoc(), newMidType, leadingReshape.getInput(),
-        rewriter.getI32ArrayAttr(midShapeAttr));
+        leadingReshape.getLoc(),
+        RankedTensorType::get(newInShape, permuteInType.getElementType(),
+                              permuteInType.getEncoding()),
+        leadingReshape.getInput(), rewriter.getI32ArrayAttr(newInShapeAttr));
 
-    // Create new permute at reduced rank.
-    SmallVector<int64_t> newOutShape;
-    for (int64_t i : newPerm) {
-      newOutShape.push_back(newMidShape[i]);
-    }
-    auto trailingType = trailingReshape.getType();
-    auto newOutType = RankedTensorType::get(
-        newOutShape, trailingType.getElementType(), trailingType.getEncoding());
     auto newPermute = rewriter.create<mlir::tt::ttir::PermuteOp>(
-        permuteOp.getLoc(), newOutType, newReshape.getResult(), newPerm);
+        permuteOp.getLoc(), trailingReshape.getType(), newReshape.getResult(),
+        newPerm);
 
     rewriter.replaceOp(trailingReshape, newPermute.getResult());
     return success();
