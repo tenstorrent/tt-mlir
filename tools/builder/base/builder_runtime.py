@@ -727,9 +727,15 @@ def execute_fb(
             outputs.append(new_output)
 
         for i, runtime_output_tensor in enumerate(runtime_outputs):
-            output_host = tt_runtime.runtime.to_host(
-                runtime_output_tensor, untilize=True
-            )
+            if not runtime_output_tensor.is_allocated():
+                # Tensor is not allocated (e.g., from const_eval that
+                # didn't produce a device tensor). Skip to_host and
+                # golden check.
+                continue
+            else:
+                output_host = tt_runtime.runtime.to_host(
+                    runtime_output_tensor, untilize=True
+                )
 
             if disable_golden:
                 continue
