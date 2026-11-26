@@ -2206,6 +2206,11 @@ inline constexpr const char *kCreateListFunctionName = "util_create_list";
 inline constexpr const char *kGetScalarFromTensorFunctionName =
     "utils.get_scalar_from_tensor";
 
+// Name for the `ttnn.Tensor` copy constructor, which returns a new handle on
+// the buffer of the tensor it is given. No data is copied: like a C++ copy of a
+// `ttnn::Tensor`, the handle shares the buffer and raises its refcount.
+inline constexpr const char *kTensorHandleFunctionName = "ttnn.Tensor";
+
 template <typename TTNNOp>
 class EmitPyTTNNEmitter {
 public:

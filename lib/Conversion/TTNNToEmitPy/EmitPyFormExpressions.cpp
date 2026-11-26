@@ -18,8 +18,14 @@ namespace mlir::tt {
 
 // This pass wraps single-use PyExpressionInterface ops into ExpressionOps
 // for inline emission. Exceptions are callOpaqueOps that are not creating
-// a list. Those are not inlined, to prevent from inlining of consteval
-// function calls and provide cleaner emission of ttnn op calls.
+// a list or a new tensor handle. Those are not inlined, to prevent from
+// inlining of consteval function calls and provide cleaner emission of ttnn op
+// calls.
+//
+// A new tensor handle has to be inlined into the one assignment that uses it:
+// a variable of its own would hold it until the end of the function, so a
+// non-forced deallocation of the tensor it shares a buffer with could never
+// free that buffer.
 //
 
 namespace {
@@ -28,10 +34,11 @@ static bool hasSingleUse(Operation *op) {
   return op->getNumResults() == 1 && op->getResult(0).hasOneUse();
 }
 
-static bool isCreateListCall(Operation *op) {
+static bool isInlinableCall(Operation *op) {
   auto callOp = dyn_cast<emitpy::CallOpaqueOp>(op);
   return callOp &&
-         callOp.getCallee() == ttnn_to_emitpy::kCreateListFunctionName;
+         (callOp.getCallee() == ttnn_to_emitpy::kCreateListFunctionName ||
+          callOp.getCallee() == ttnn_to_emitpy::kTensorHandleFunctionName);
 }
 
 static bool isPyExprInterfaceSingleUseOp(Operation *op) {
@@ -41,8 +48,9 @@ static bool isPyExprInterfaceSingleUseOp(Operation *op) {
   if (!isa<emitpy::PyExpressionInterface>(op)) {
     return false;
   }
-  // As for the CallOpaqueOp, only inline when it is a util_create_list call.
-  if (isa<emitpy::CallOpaqueOp>(op) && !isCreateListCall(op)) {
+  // As for the CallOpaqueOp, only inline when it is a util_create_list or
+  // ttnn.Tensor call.
+  if (isa<emitpy::CallOpaqueOp>(op) && !isInlinableCall(op)) {
     return false;
   }
   return true;
