@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
 from typing import Optional
@@ -46,9 +46,13 @@ class ExecutionResult:
     error_message: Optional[str] = None
 
     # Timestamp taken when execution was started.
-    execution_started: datetime = datetime.now()
+    # `default_factory`, not `datetime.now()`: a bare call is evaluated once when
+    # the class is created, so every instance would share the import-time value
+    # and each op's reported start time -- and therefore its duration -- would be
+    # wrong.
+    execution_started: datetime = field(default_factory=datetime.now)
     # Timestamp which updated with each successful execution step.
-    last_update: datetime = datetime.now()
+    last_update: datetime = field(default_factory=datetime.now)
 
     @property
     def execution_ended(self) -> datetime:
