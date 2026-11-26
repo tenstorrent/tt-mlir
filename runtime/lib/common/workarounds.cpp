@@ -5,12 +5,8 @@
 #include "tt/runtime/workarounds.h"
 
 namespace tt::runtime::workaround {
-const Env &Env::get(bool swapBinaryOperands,
-                    bool readUpdateIndexFromDeviceForKVCache,
-                    bool blackholeWorkarounds) {
-  static const Env config(swapBinaryOperands,
-                          readUpdateIndexFromDeviceForKVCache,
-                          blackholeWorkarounds);
+const Env &Env::get(bool swapBinaryOperands, bool blackholeWorkarounds) {
+  static const Env config(swapBinaryOperands, blackholeWorkarounds);
   return config;
 }
 } // namespace tt::runtime::workaround
