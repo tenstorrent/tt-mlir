@@ -24,7 +24,7 @@ module {
     %view_out0 = d2m.view_layout %o0 remapping = #map : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
     %o1 = d2m.empty() {virtualGridForwardMapping = #map2, virtualGridInverseMapping = #map3} : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
     %view_out1 = d2m.view_layout %o1 remapping = #map : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout> -> tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>
-    %r:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0, 0), (0, 0)>, #ttcore.core_range<(1, 1), (1, 1)>]}
+    %r:2 = d2m.spatial {grid_ranges = [#ttcore.core_range<(0,0), 1x1>, #ttcore.core_range<(1,1), 1x1>]}
         ins(%view_in_0, %view_in_1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>)
         outs(%view_out0, %view_out1 : tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>, tensor<1x1x1x1x!ttcore.tile<32x32, bf16>, #layout>) {
       ^region0():
