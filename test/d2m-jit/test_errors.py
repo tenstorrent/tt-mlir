@@ -168,6 +168,35 @@ def test_error_line_number_points_to_correct_line():
     )
 
 
+def _assert_static_integer_zero_is_wrapped(kernel):
+    in_t, out_t = _make_lazy_pair()
+    sem = d2m.global_semaphore(grid_shape=(1, 1))
+    with pytest.raises(d2m.D2mJitError) as exc_info:
+        kernel(in_t, out_t, sem, grid=(1, 1))
+
+    err = exc_info.value
+    assert isinstance(err.cause, ZeroDivisionError)
+    assert isinstance(err.__cause__, ZeroDivisionError)
+    assert "zero" in str(err)
+    assert "test_errors.py" in str(err)
+
+
+def test_static_integer_floor_division_by_zero_is_wrapped():
+    @d2m.kernel
+    def k(in_t, out_t, sem):
+        device_synchronize(sem, num_receivers=1 // 0)
+
+    _assert_static_integer_zero_is_wrapped(k)
+
+
+def test_static_integer_modulo_by_zero_is_wrapped():
+    @d2m.kernel
+    def k(in_t, out_t, sem):
+        device_synchronize(sem, num_receivers=1 % 0)
+
+    _assert_static_integer_zero_is_wrapped(k)
+
+
 # ---------------------------------------------------------------------------
 # Call-site errors -- raised from _emit_kernel_generic before AST compilation.
 # These are pinned to the kernel's `def` line (so the user at least sees
