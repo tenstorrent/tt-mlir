@@ -334,6 +334,8 @@ addElementwiseUnaryOpsConversionPatterns(mlir::MLIRContext *ctx,
                                                   mlir::tt::ttir::SigmoidOp>,
            TTNNToTTIRElementwiseConversionPattern<
                mlir::tt::ttnn::HardsigmoidOp, mlir::tt::ttir::HardsigmoidOp>,
+           TTNNToTTIRElementwiseConversionPattern<
+               mlir::tt::ttnn::HardswishOp, mlir::tt::ttir::HardswishOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::TanOp,
                                                   mlir::tt::ttir::TanOp>,
            TTNNToTTIRElementwiseConversionPattern<mlir::tt::ttnn::TanhOp,
