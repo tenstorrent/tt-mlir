@@ -123,8 +123,8 @@ private:
       bool exploreInterleavedToSharded = false,
       int64_t maxGridVolume = std::numeric_limits<int64_t>::max());
 
-  /// Create a DRAM interleaved fallback layout for an op.
-  TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op);
+  /// Create a DRAM interleaved fallback layout for one result of an op.
+  TTNNLayoutAttr getDRAMInterleavedFallback(Operation *op, unsigned resultIdx);
 
   /// Apply all resolved configs to IR.
   void applyToIR();
