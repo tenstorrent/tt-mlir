@@ -41,7 +41,8 @@ std::vector<std::uint32_t> processKernelArgs(
         *cbs,
     const DeviceAddressValidator &deviceAddressValidator,
     std::function<std::uint32_t(std::uint32_t)> createSemaphoreFn,
-    const std::unordered_map<std::uint32_t, Tensor> &hostBuffers) {
+    const std::unordered_map<std::uint32_t, Tensor> &hostBuffers,
+    const std::vector<std::uint32_t> *cachedArgs = nullptr) {
   std::vector<std::uint32_t> argsVec;
   if (args == nullptr || args->size() == 0) {
     return argsVec;
@@ -78,7 +79,6 @@ std::vector<std::uint32_t> processKernelArgs(
       break;
     }
     case target::metal::KernelArgType::KernelArgLocalSemaphore: {
-      LOG_ASSERT(createSemaphoreFn, "createSemaphoreFn is not set");
       const auto *arg = kernelArg->arg_as_KernelArgLocalSemaphore();
       LOG_ASSERT(arg->operand_idx() < argRefsType->size(),
                  "local semaphore operand_idx out of bounds ",
@@ -94,8 +94,17 @@ std::vector<std::uint32_t> processKernelArgs(
           "Local semaphore id referenced by kernel args is no longer alive "
           "or was never created ",
           logger::Buffer(local_sem_ref->global_id()));
-      argsVec.push_back(createSemaphoreFn(
-          localSemaphoresCache.at(local_sem_ref->global_id())));
+      if (cachedArgs) {
+        LOG_ASSERT(cachedArgs->size() > argsVec.size(),
+                   "Cached kernel arguments are incomplete");
+        // Local semaphore addresses belong to the materialized Program and
+        // must remain unchanged when its other arguments are refreshed.
+        argsVec.push_back(cachedArgs->at(argsVec.size()));
+      } else {
+        LOG_ASSERT(createSemaphoreFn, "createSemaphoreFn is not set");
+        argsVec.push_back(createSemaphoreFn(
+            localSemaphoresCache.at(local_sem_ref->global_id())));
+      }
       break;
     }
     case target::metal::KernelArgType::KernelArgNamedArgument: {
@@ -183,6 +192,13 @@ std::vector<std::uint32_t> processRuntimeArgs(Args &&...args) {
 template <typename... Args>
 std::vector<std::uint32_t> processCompileArgs(Args &&...args) {
   return processKernelArgs<true>(std::forward<Args>(args)...);
+}
+
+template <typename... Args>
+std::vector<std::uint32_t>
+refreshRuntimeArgs(const std::vector<std::uint32_t> &cachedArgs,
+                   Args &&...args) {
+  return processKernelArgs<false>(std::forward<Args>(args)..., &cachedArgs);
 }
 
 } // namespace tt::runtime::ttmetal
