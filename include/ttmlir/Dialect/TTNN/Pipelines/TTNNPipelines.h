@@ -289,6 +289,18 @@ struct TTIRToTTNNCommonPipelineOptions
       *this, "enable-ttnn-decomposition-pass",
       llvm::cl::desc("Enable TTNN decomposition pass."), llvm::cl::init(true)};
 
+  // Validate ops against the op model before decomposing them even when the
+  // optimizer is off, so a kernel tt-metal can run (e.g.
+  // scaled_dot_product_attention) is kept fused instead of unconditionally
+  // decomposed. Requires TTMLIR_ENABLE_OPMODEL and an op-model runtime (a mock
+  // device is opened if none is provided). Off by default so device-free
+  // pipelines are unchanged (tt-xla#6081).
+  Option<bool> decompositionOpConstraints{
+      *this, "enable-decomposition-op-constraints",
+      llvm::cl::desc("Run the TTNN decomposition pass with op-model validation "
+                     "even when the optimizer is off (requires OpModel)."),
+      llvm::cl::init(false)};
+
   Option<ttnn::CompositeResolution> compositeResolution{
       *this, "composite-resolution",
       llvm::cl::desc("How to resolve composites."),
