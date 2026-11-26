@@ -114,6 +114,32 @@ public:
     return op;
   }
 
+  // A matmul consumed by a collective; see resultFeedsCCL in MatmulRules.cpp.
+  MatmulOp buildMatmulFeedingAllReduce(llvm::ArrayRef<int64_t> actShape,
+                                       llvm::ArrayRef<int64_t> weightShape,
+                                       llvm::ArrayRef<int64_t> outShape,
+                                       ttcore::DataType weightDt) {
+    auto actType = tensorOf(actShape, ttcore::DataType::BFloat16);
+    auto weightType = tensorOf(weightShape, weightDt);
+    auto outType = tensorOf(outShape, ttcore::DataType::BFloat16);
+    mlir::Block *block = openFunc({actType, weightType}, outType);
+    auto op = builder.create<MatmulOp>(
+        builder.getUnknownLoc(), outType, block->getArgument(0),
+        block->getArgument(1), /*transpose_a=*/false, /*transpose_b=*/false,
+        /*matmul_program_config=*/mlir::Attribute(),
+        /*activation=*/mlir::StringAttr());
+    auto allReduce = builder.create<AllReduceOp>(
+        builder.getUnknownLoc(), outType, op.getResult(),
+        ttcore::ReduceTypeAttr::get(&context, ttcore::ReduceType::Sum),
+        /*cluster_axis=*/builder.getUI32IntegerAttr(0),
+        /*sub_device_id=*/mlir::IntegerAttr(),
+        /*num_links=*/mlir::IntegerAttr(),
+        /*topology=*/ttcore::TopologyAttr());
+    builder.create<mlir::func::ReturnOp>(builder.getUnknownLoc(),
+                                         allReduce.getResult());
+    return op;
+  }
+
   LinearOp buildLinear(llvm::ArrayRef<int64_t> actShape,
                        llvm::ArrayRef<int64_t> weightShape,
                        llvm::ArrayRef<int64_t> outShape,
@@ -179,6 +205,13 @@ TEST_F(DRAMShardedEligibilityTest, MatmulEligible) {
   auto op = buildMatmul({32, 4096}, {4096, 4096}, {32, 4096},
                         ttcore::DataType::BFP_BFloat8);
   EXPECT_TRUE(isDSEligible(op, {32, 4096}));
+}
+
+// MatmulEligible's shape, declined for its consumer alone.
+TEST_F(DRAMShardedEligibilityTest, MatmulFeedingCollectiveDeclined) {
+  auto op = buildMatmulFeedingAllReduce({32, 4096}, {4096, 4096}, {32, 4096},
+                                        ttcore::DataType::BFP_BFloat8);
+  EXPECT_FALSE(isDSEligible(op, {32, 4096}));
 }
 
 // The same computation, and how ttnn decoders write their projections.
