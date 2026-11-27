@@ -459,7 +459,19 @@ createConv2dSliceConfig(const ::tt::target::ttnn::Conv2dSliceConfig *config) {
   }
 
   if (config->fp32_dest_acc_en()) {
-    computeKernelConfig.fp32_dest_acc_en = *config->fp32_dest_acc_en();
+    // Quasar has no fp32 destination accumulation. Honouring the request makes the
+    // compute kernel declare an FP32 dataflow buffer with enable_32_bit_dest=true
+    // and then TT_FATAL at program build:
+    //   "consumes FP32 DFB 'cb_intermed0' with enable_32_bit_dest=true, but
+    //    provides no unpack_modes entry for this DFB"
+    // Every compute config this frontend emits asks for it (measured: 55 of 55 in
+    // ResNet-50 -- all 53 conv2d plus linear and mean), so it is the single reason
+    // those ops cannot build. Quasar is a bf16 machine throughout -- it has no
+    // bfloat8_b either -- so accumulating in fp32 was never available; dropping the
+    // request is what the hardware can actually do, not a precision compromise we
+    // are choosing.
+    computeKernelConfig.fp32_dest_acc_en =
+        isQuasar() ? false : *config->fp32_dest_acc_en();
   }
 
   if (config->packer_l1_acc()) {

@@ -2,9 +2,14 @@
 //
 // SPDX-License-Identifier: Apache-2.0
 
+#include <cstdlib>
+#include <fstream>  // QSR_DUMP_CONVOUT
 #include "operations/conv/conv2d.h"
 #include "tt/runtime/detail/common/logger.h"
+#include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/ttnn.h"
+
+#include "ttnn/operations/experimental/quasar/conv2d/conv2d.hpp"
 
 #include "tt/runtime/detail/ttnn/operations/utils.h"
 #include "tt/runtime/detail/ttnn/utils.h"
@@ -80,15 +85,85 @@ void run(const ::tt::target::ttnn::Conv2dOp *op, ProgramContext &context) {
     sliceConfig = utils::createConv2dSliceConfig(op->conv2d_slice_config());
   }
 
-  Conv2dResultWithOptions result = ::ttnn::conv2d(
-      input, weight, &targetDevice, op->in_channels(), op->out_channels(),
-      op->batch_size(), op->input_height(), op->input_width(), kernelSize,
-      stride, padding, dilation, op->groups(), outputDtype, bias, conv2dConfig,
-      computeConfig, outputMemoryConfig, sliceConfig);
+  // Quasar's conv2d takes the identical argument list; the mainline conv program
+  // factory builds a DataMovementKernel and TT_FATALs on Quasar.
+  // This frontend emits no shard_layout at all (measured: 0 occurrences across all
+  // 53 conv2d in ResNet-50), leaving Quasar's conv2d to choose for itself -- and it
+  // fails there. tt-metal's own per-op Quasar conv2d test always passes one
+  // explicitly. Same shape of bug as matmul: on Quasar, auto-selection is unsafe.
+  //
+  // Which one is not a free choice. Measured from the optimised pipeline's own IR,
+  // where the compiler does assign it:
+  //     224, 56 spatial -> height_sharded (14/14)
+  //     28      spatial -> height_sharded (11), block_sharded (2)
+  //     14, 7   spatial -> block_sharded  (26/26)
+  // A narrow activation spread over many cores wants height sharding; once the
+  // spatial extent collapses and the channel count dominates, block sharding is what
+  // the reference uses. Splitting at 28 matches 50 of the 53 convolutions.
+  if (utils::isQuasar() && !conv2dConfig.shard_layout.has_value()) {
+    conv2dConfig.shard_layout =
+        (op->input_height() >= 28)
+            ? ::ttnn::TensorMemoryLayout::HEIGHT_SHARDED
+            : ::ttnn::TensorMemoryLayout::BLOCK_SHARDED;
+  }
+
+  // Gen2 (Quasar) cannot express the DRAM config-landing scratch buffer: halo's
+  // reader binds `gather_scratch0` as both PRODUCER and CONSUMER, and
+  // program_spec.cpp:1497 rejects self-looped DFBs for data-movement kernels on
+  // Gen2. tt-metal defaults this to false; this frontend emits true on all 53
+  // convolutions, which is what trips the assert. Not a policy choice -- the
+  // DRAM-config path simply does not exist on Gen2.
+  if (utils::isQuasar()) {
+    conv2dConfig.config_tensors_in_dram = false;
+  }
+
+  // Note: forwarding the function *name* into a generic lambda would drop its
+  // default arguments, so both calls are spelled out.
+  Conv2dResultWithOptions result =
+      utils::isQuasar()
+          ? ::ttnn::operations::experimental::quasar::conv2d(
+                input, weight, &targetDevice, op->in_channels(),
+                op->out_channels(), op->batch_size(), op->input_height(),
+                op->input_width(), kernelSize, stride, padding, dilation,
+                op->groups(), outputDtype, bias, conv2dConfig, computeConfig,
+                outputMemoryConfig, sliceConfig)
+          : ::ttnn::conv2d(input, weight, &targetDevice, op->in_channels(),
+                           op->out_channels(), op->batch_size(),
+                           op->input_height(), op->input_width(), kernelSize,
+                           stride, padding, dilation, op->groups(), outputDtype,
+                           bias, conv2dConfig, computeConfig, outputMemoryConfig,
+                           sliceConfig);
 
   LOG_ASSERT(std::holds_alternative<::ttnn::Tensor>(result));
 
   ::ttnn::Tensor out = std::get<::ttnn::Tensor>(result);
+
+  // QSR_DUMP_CONVOUT: dump the device's FINAL conv output.
+  //
+  // Paired with QSR_DUMP_HALO and QSR_DUMP_W, this gives all three tensors from ONE run:
+  // the halo output, the prepared weights, and what the device actually produced. The host
+  // can then compute CPU(halo_out, weights) -- which reproduces the convolution at pcc
+  // 1.000000 -- and diff it against the device output element-wise.
+  //
+  // This needs NO model of what "correct" looks like: the CPU reconstruction IS the reference.
+  // Every earlier structural claim (fill fraction, window positions) rested on a model of
+  // expected values and each was falsified by a control. This one cannot be, because the
+  // reference is computed from the device's own inputs.
+  if (std::getenv("QSR_DUMP_CONVOUT") != nullptr) {
+    const char *dirEnv = std::getenv("QSR_DUMP_HALO_DIR");
+    const std::string dir = dirEnv ? dirEnv : "/tmp";
+    try {
+      auto v = out.to_vector<::bfloat16>();
+      const std::string path = dir + "/qsr_convout.u16";
+      std::ofstream f(path, std::ios::binary);
+      f.write(reinterpret_cast<const char *>(v.data()),
+              static_cast<std::streamsize>(v.size() * sizeof(::bfloat16)));
+      f.close();
+      LOG_INFO("QSR_CONVOUT_DUMP n=", v.size(), " path=", path);
+    } catch (const std::exception &e) {
+      LOG_INFO("QSR_CONVOUT_DUMP FAILED: ", e.what());
+    }
+  }
 
   tensorPool.insertTTNNTensorAndValidate(op->out(), out);
 }
