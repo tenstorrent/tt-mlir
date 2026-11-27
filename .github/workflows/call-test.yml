@@ -196,7 +196,7 @@ jobs:
 
     - name: Upload test artifacts
       if: success() || failure()
-      uses: nsumrakTT/upload-multiple-artifacts@main
+      uses: nsumrakTT/upload-multiple-artifacts@833ec7824242
       with:
         continue-on-error: 'true'
         config: _test_upload.json
