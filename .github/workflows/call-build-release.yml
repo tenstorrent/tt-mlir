@@ -189,7 +189,7 @@ jobs:
         cat $UPLOAD_LIST | jq .
 
     - name: Upload wheels
-      uses: nsumrakTT/upload-multiple-artifacts@main
+      uses: nsumrakTT/upload-multiple-artifacts@833ec7824242a5c878cbab03a8315e83c7f8a32b
       with:
         continue-on-error: 'false'
         config: _components_upload.json
